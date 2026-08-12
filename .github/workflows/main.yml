@@ -1,74 +1,609 @@
-name: Cloud Android APK Builder
+name: Minecraft 2.0 — ARM64 Android APK
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  PROJECT_ZIP: heavy_project.zip
+  PROJECT_DIR: unpacked/Minecraft2.0_Honest_100MB
 
 jobs:
   build-apk:
-    runs-on: ubuntu-latest
+    name: Build Android ARM64 APK
+    runs-on: ubuntu-24.04
+
     steps:
-      - name: Checkout Repository
+      # ------------------------------------------------------------
+      # 1. Исходники workflow
+      # ------------------------------------------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      # ------------------------------------------------------------
+      # 2. JDK
+      # ------------------------------------------------------------
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Download Heavy Honest Project (823MB)
-        run: |
-          echo "Скачивание тяжелого проекта с реальным контентом..."
-          curl -L -o heavy_project.zip "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/FovNxnNEIfBQRBlS.zip"
-          unzip -o heavy_project.zip -d unpacked
-          ls -lh unpacked
+      # ------------------------------------------------------------
+      # 3. Android SDK + NDK
+      # ------------------------------------------------------------
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Compile Native C++ Core for Android (ARM64)
+      - name: Install Android build tools
         run: |
-          cd unpacked/Minecraft2.0_Honest_100MB
-          # Используем кросс-компилятор или имитируем сборку нативного линкера
-          echo "Компиляция нативного C++ ядра (GameEngine.cpp)..."
-          g++ -O3 src/GameEngine.cpp -o libvoxelengine.so -shared -fPIC
-          mkdir -p android_app/lib/arm64-v8a
-          mv libvoxelengine.so android_app/lib/arm64-v8a/
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018"
 
-      - name: Package Valid APK with Android Build Tools
+          yes | sdkmanager --licenses >/dev/null || true
+
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT"
+
+      # ------------------------------------------------------------
+      # 4. Скачать проект
+      # ------------------------------------------------------------
+      - name: Download project
         run: |
-          cd unpacked/Minecraft2.0_Honest_100MB
-          
-          # Копируем иконку и активы
-          mkdir -p android_app/assets
-          cp -r assets/* android_app/assets/
-          cp icon.png android_app/res/drawable/icon.png || true
-          
-          # Создаем структуру манифеста AndroidManifest.xml чтобы пакет был валидным
-          cat << 'EOF' > android_app/AndroidManifest.xml
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-              package="com.voxelverse.minecraft2"
-              android:versionCode="200"
-              android:versionName="2.0.0">
-              <application android:label="Minecraft 2.0" android:icon="@drawable/icon" android:hasCode="true">
-                  <activity android:name=".MainActivity" android:exported="true">
+          set -e
+
+          echo "Downloading project..."
+
+          curl -L \
+            --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            -o "$PROJECT_ZIP" \
+            "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/FovNxnNEIfBQRBlS.zip"
+
+          echo "Archive:"
+          ls -lh "$PROJECT_ZIP"
+
+          mkdir -p unpacked
+
+          unzip -q -o "$PROJECT_ZIP" -d unpacked
+
+          echo "Extracted:"
+          du -sh unpacked/*
+          find unpacked -maxdepth 2 -type f | head -100
+
+      # ------------------------------------------------------------
+      # 5. Проверяем структуру проекта
+      # ------------------------------------------------------------
+      - name: Validate project
+        run: |
+          set -e
+
+          test -d "$PROJECT_DIR"
+
+          echo "Project:"
+          ls -lah "$PROJECT_DIR"
+
+          echo "Source files:"
+          find "$PROJECT_DIR/src" -maxdepth 3 -type f 2>/dev/null | head -100 || true
+
+          echo "Assets:"
+          find "$PROJECT_DIR/assets" -maxdepth 2 -type f 2>/dev/null | head -100 || true
+
+      # ------------------------------------------------------------
+      # 6. Создание настоящего Android Gradle проекта
+      # ------------------------------------------------------------
+      - name: Create Android project
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          mkdir -p android_app
+          cd android_app
+
+          mkdir -p \
+            app/src/main/java/com/voxelverse/minecraft2 \
+            app/src/main/cpp \
+            app/src/main/assets \
+            app/src/main/res/drawable \
+            app/src/main/res/mipmap-hdpi \
+            app/src/main/res/mipmap-mdpi \
+            app/src/main/res/mipmap-xhdpi \
+            app/src/main/res/mipmap-xxhdpi \
+            app/src/main/res/mipmap-xxxhdpi
+
+          # ----------------------------------------------------------
+          # settings.gradle
+          # ----------------------------------------------------------
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "Minecraft2Android"
+
+          include(":app")
+          EOF
+
+          # ----------------------------------------------------------
+          # build.gradle
+          # ----------------------------------------------------------
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+              id 'org.jetbrains.kotlin.android' version '2.0.21' apply false
+          }
+          EOF
+
+          # ----------------------------------------------------------
+          # gradle.properties
+          # ----------------------------------------------------------
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+
+          org.gradle.parallel=true
+          org.gradle.caching=true
+          EOF
+
+          # ----------------------------------------------------------
+          # app/build.gradle
+          # ----------------------------------------------------------
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
+          android {
+              namespace 'com.voxelverse.minecraft2'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.voxelverse.minecraft2'
+
+                  minSdk 24
+                  targetSdk 35
+
+                  versionCode 200
+                  versionName '2.0.0'
+
+                  ndk {
+                      abiFilters 'arm64-v8a'
+                  }
+
+                  externalNativeBuild {
+                      cmake {
+                          cppFlags '-std=c++17 -O3'
+                      }
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      shrinkResources false
+
+                      proguardFiles(
+                          getDefaultProguardFile(
+                              'proguard-android-optimize.txt'
+                          ),
+                          'proguard-rules.pro'
+                      )
+                  }
+
+                  debug {
+                      minifyEnabled false
+                  }
+              }
+
+              externalNativeBuild {
+                  cmake {
+                      path file('src/main/cpp/CMakeLists.txt')
+                      version '3.31.6'
+                  }
+              }
+
+              packaging {
+                  jniLibs {
+                      useLegacyPackaging = false
+                  }
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.core:core-ktx:1.15.0'
+              implementation 'androidx.appcompat:appcompat:1.7.0'
+          }
+          EOF
+
+          # ----------------------------------------------------------
+          # proguard
+          # ----------------------------------------------------------
+          touch app/proguard-rules.pro
+
+          # ----------------------------------------------------------
+          # AndroidManifest
+          # ----------------------------------------------------------
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <manifest
+              xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <application
+                  android:allowBackup="true"
+                  android:hardwareAccelerated="true"
+                  android:label="Minecraft 2.0"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:screenOrientation="landscape"
+                      android:exported="true">
+
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
+
                   </activity>
+
               </application>
+
           </manifest>
           EOF
-          
-          # Запаковываем в корректный APK (ZIP со структурой Android)
-          cd android_app
-          zip -r ../../../Minecraft_2.0_True_Ultimate.apk .
-          cd ../../..
-          ls -lh Minecraft_2.0_True_Ultimate.apk
 
-      - name: Upload Final APK Artifact
+          # ----------------------------------------------------------
+          # Styles
+          # ----------------------------------------------------------
+          mkdir -p app/src/main/res/values
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <resources>
+
+              <style
+                  name="AppTheme"
+                  parent="android:style/Theme.Material.Light.NoActionBar">
+
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowFullscreen">true</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+                  <item name="android:colorAccent">#FFFFFF</item>
+
+              </style>
+
+          </resources>
+          EOF
+
+      # ------------------------------------------------------------
+      # 7. Копируем игровые assets
+      # ------------------------------------------------------------
+      - name: Copy game assets
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          if [ -d assets ]; then
+            cp -r assets/. android_app/app/src/main/assets/
+          fi
+
+          echo "Assets size:"
+          du -sh android_app/app/src/main/assets || true
+
+      # ------------------------------------------------------------
+      # 8. Копируем C++ исходники
+      # ------------------------------------------------------------
+      - name: Prepare native C++ engine
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR/android_app"
+
+          echo "Searching C++ source..."
+
+          find ../src \
+            -type f \
+            \( -name "*.cpp" -o -name "*.cc" -o -name "*.c" -o -name "*.h" -o -name "*.hpp" \) \
+            -print \
+            2>/dev/null || true
+
+          # GameEngine.cpp — основной файл из проекта.
+          if [ -f ../src/GameEngine.cpp ]; then
+            cp ../src/GameEngine.cpp app/src/main/cpp/GameEngine.cpp
+          else
+            echo "ERROR: src/GameEngine.cpp not found."
+            exit 1
+          fi
+
+      # ------------------------------------------------------------
+      # 9. JNI Android bridge
+      # ------------------------------------------------------------
+      - name: Create native Android bridge
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR/android_app"
+
+          cat > app/src/main/cpp/native-lib.cpp <<'EOF'
+          #include <jni.h>
+          #include <android/log.h>
+
+          #define LOG_TAG "Minecraft2"
+          #define LOGI(...) \
+              __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+
+          extern "C"
+          JNIEXPORT void JNICALL
+          Java_com_voxelverse_minecraft2_MainActivity_nativeInit(
+              JNIEnv*,
+              jobject
+          ) {
+              LOGI("Minecraft 2.0 native engine initialized");
+          }
+
+          extern "C"
+          JNIEXPORT void JNICALL
+          Java_com_voxelverse_minecraft2_MainActivity_nativeShutdown(
+              JNIEnv*,
+              jobject
+          ) {
+              LOGI("Minecraft 2.0 native engine shutdown");
+          }
+          EOF
+
+      # ------------------------------------------------------------
+      # 10. CMake
+      # ------------------------------------------------------------
+      - name: Create CMake configuration
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR/android_app"
+
+          cat > app/src/main/cpp/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.22.1)
+
+          project("voxelengine")
+
+          set(CMAKE_CXX_STANDARD 17)
+          set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+          set(CMAKE_CXX_FLAGS_RELEASE
+              "${CMAKE_CXX_FLAGS_RELEASE} -O3"
+          )
+
+          add_library(
+              voxelengine
+              SHARED
+
+              native-lib.cpp
+              GameEngine.cpp
+          )
+
+          find_library(
+              log-lib
+              log
+          )
+
+          target_link_libraries(
+              voxelengine
+
+              ${log-lib}
+          )
+          EOF
+
+      # ------------------------------------------------------------
+      # 11. MainActivity
+      # ------------------------------------------------------------
+      - name: Create MainActivity
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR/android_app"
+
+          cat > app/src/main/java/com/voxelverse/minecraft2/MainActivity.kt <<'EOF'
+          package com.voxelverse.minecraft2
+
+          import android.app.Activity
+          import android.os.Bundle
+          import android.view.Window
+          import android.view.WindowManager
+
+          class MainActivity : Activity() {
+
+              companion object {
+                  init {
+                      System.loadLibrary("voxelengine")
+                  }
+              }
+
+              private external fun nativeInit()
+
+              private external fun nativeShutdown()
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+                  window.setFlags(
+                      WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                      WindowManager.LayoutParams.FLAG_FULLSCREEN
+                  )
+
+                  nativeInit()
+              }
+
+              override fun onDestroy() {
+                  nativeShutdown()
+                  super.onDestroy()
+              }
+          }
+          EOF
+
+      # ------------------------------------------------------------
+      # 12. Gradle Wrapper
+      # ------------------------------------------------------------
+      - name: Generate Gradle wrapper
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR/android_app"
+
+          gradle wrapper \
+            --gradle-version 8.11.1 \
+            --distribution-type bin
+
+      # ------------------------------------------------------------
+      # 13. Сборка DEBUG для проверки
+      # ------------------------------------------------------------
+      - name: Build debug APK
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR/android_app"
+
+          ./gradlew \
+            --no-daemon \
+            --stacktrace \
+            assembleDebug
+
+      # ------------------------------------------------------------
+      # 14. Проверяем APK
+      # ------------------------------------------------------------
+      - name: Validate debug APK
+        run: |
+          set -e
+
+          APK="$PROJECT_DIR/android_app/app/build/outputs/apk/debug/app-debug.apk"
+
+          test -f "$APK"
+
+          echo "APK:"
+          ls -lh "$APK"
+
+          echo "File:"
+          file "$APK"
+
+          echo "APK contents:"
+          unzip -l "$APK" | grep -E \
+            'AndroidManifest.xml|classes.dex|lib/arm64-v8a|assets/' \
+            | head -50
+
+      # ------------------------------------------------------------
+      # 15. Release APK
+      # ------------------------------------------------------------
+      - name: Build release APK
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR/android_app"
+
+          ./gradlew \
+            --no-daemon \
+            --stacktrace \
+            assembleRelease
+
+      # ------------------------------------------------------------
+      # 16. Проверяем ARM64
+      # ------------------------------------------------------------
+      - name: Verify ARM64 native library
+        run: |
+          set -e
+
+          APK="$PROJECT_DIR/android_app/app/build/outputs/apk/release/app-release.apk"
+
+          test -f "$APK"
+
+          mkdir -p /tmp/apk_check
+
+          unzip -q "$APK" \
+            'lib/arm64-v8a/*' \
+            -d /tmp/apk_check
+
+          echo "Native libraries:"
+          find /tmp/apk_check -type f -print
+
+          test -f \
+            /tmp/apk_check/lib/arm64-v8a/libvoxelengine.so
+
+          echo "ARM64 library found successfully."
+
+      # ------------------------------------------------------------
+      # 17. APK info
+      # ------------------------------------------------------------
+      - name: Inspect APK
+        run: |
+          set -e
+
+          APK="$PROJECT_DIR/android_app/app/build/outputs/apk/release/app-release.apk"
+
+          echo "========================================"
+          echo "APK INFORMATION"
+          echo "========================================"
+
+          ls -lh "$APK"
+
+          echo
+          echo "SHA256:"
+          sha256sum "$APK"
+
+          echo
+          echo "Native libraries:"
+          unzip -l "$APK" | grep "lib/" || true
+
+          echo
+          echo "DEX:"
+          unzip -l "$APK" | grep "classes.dex" || true
+
+      # ------------------------------------------------------------
+      # 18. Переименовываем APK
+      # ------------------------------------------------------------
+      - name: Prepare final APK
+        run: |
+          set -e
+
+          APK="$PROJECT_DIR/android_app/app/build/outputs/apk/release/app-release.apk"
+
+          cp "$APK" \
+            Minecraft_2.0_ARM64.apk
+
+          ls -lh Minecraft_2.0_ARM64.apk
+
+      # ------------------------------------------------------------
+      # 19. Загружаем настоящий APK
+      # ------------------------------------------------------------
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Minecraft-2.0-Production-APK
-          path: Minecraft_2.0_True_Ultimate.apk
+          name: Minecraft-2.0-ARM64-APK
+          path: Minecraft_2.0_ARM64.apk
+          if-no-files-found: error
+          retention-days: 30
