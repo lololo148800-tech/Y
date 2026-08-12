@@ -16,30 +16,42 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      # ------------------------------------------------------------
-      # 1. Исходники workflow
-      # ------------------------------------------------------------
-      - name: Checkout repository
+
+      # ============================================================
+      # 1. CHECKOUT
+      # ============================================================
+
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # 2. JDK
-      # ------------------------------------------------------------
+
+      # ============================================================
+      # 2. JAVA 17
+      # ============================================================
+
       - name: Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      # ------------------------------------------------------------
-      # 3. Android SDK + NDK
-      # ------------------------------------------------------------
+
+      # ============================================================
+      # 3. ANDROID SDK
+      # ============================================================
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android build tools
+
+      # ============================================================
+      # 4. ANDROID SDK / NDK
+      # ============================================================
+
+      - name: Install Android SDK and NDK
         run: |
+          set -e
+
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
@@ -48,13 +60,24 @@ jobs:
 
           yes | sdkmanager --licenses >/dev/null || true
 
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT"
+          echo "========================================"
+          echo "ANDROID ENVIRONMENT"
+          echo "========================================"
 
-      # ------------------------------------------------------------
-      # 4. Скачать проект
-      # ------------------------------------------------------------
-      - name: Download project
+          echo "ANDROID_HOME=$ANDROID_HOME"
+
+          if [ -n "$ANDROID_NDK_ROOT" ]; then
+            echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT"
+          fi
+
+          adb version || true
+
+
+      # ============================================================
+      # 5. DOWNLOAD PROJECT
+      # ============================================================
+
+      - name: Download Minecraft 2.0 Project
         run: |
           set -e
 
@@ -64,64 +87,89 @@ jobs:
             --fail \
             --retry 5 \
             --retry-delay 5 \
+            --connect-timeout 30 \
             -o "$PROJECT_ZIP" \
             "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/FovNxnNEIfBQRBlS.zip"
 
-          echo "Archive:"
+          echo "Downloaded archive:"
           ls -lh "$PROJECT_ZIP"
 
           mkdir -p unpacked
 
+          echo "Extracting..."
+
           unzip -q -o "$PROJECT_ZIP" -d unpacked
 
-          echo "Extracted:"
-          du -sh unpacked/*
-          find unpacked -maxdepth 2 -type f | head -100
+          echo "Extracted project:"
+          find unpacked -maxdepth 2 -type d -print
 
-      # ------------------------------------------------------------
-      # 5. Проверяем структуру проекта
-      # ------------------------------------------------------------
-      - name: Validate project
+
+      # ============================================================
+      # 6. VALIDATE PROJECT
+      # ============================================================
+
+      - name: Validate Project
         run: |
           set -e
 
-          test -d "$PROJECT_DIR"
+          if [ ! -d "$PROJECT_DIR" ]; then
+            echo "ERROR: Project directory not found:"
+            echo "$PROJECT_DIR"
+            echo
+            echo "Available directories:"
+            find unpacked -maxdepth 3 -type d -print
+            exit 1
+          fi
 
-          echo "Project:"
+          echo "Project found:"
           ls -lah "$PROJECT_DIR"
 
-          echo "Source files:"
-          find "$PROJECT_DIR/src" -maxdepth 3 -type f 2>/dev/null | head -100 || true
+          echo
+          echo "C++ files:"
+          find "$PROJECT_DIR/src" \
+            -type f \
+            \( \
+              -name "*.cpp" \
+              -o -name "*.cc" \
+              -o -name "*.c" \
+              -o -name "*.h" \
+              -o -name "*.hpp" \
+            \) \
+            -print 2>/dev/null || true
 
-          echo "Assets:"
-          find "$PROJECT_DIR/assets" -maxdepth 2 -type f 2>/dev/null | head -100 || true
 
-      # ------------------------------------------------------------
-      # 6. Создание настоящего Android Gradle проекта
-      # ------------------------------------------------------------
-      - name: Create Android project
+      # ============================================================
+      # 7. CREATE ANDROID PROJECT
+      # ============================================================
+
+      - name: Create Android Gradle Project
         run: |
           set -e
 
           cd "$PROJECT_DIR"
 
+          rm -rf android_app
+
           mkdir -p android_app
+
           cd android_app
 
           mkdir -p \
             app/src/main/java/com/voxelverse/minecraft2 \
             app/src/main/cpp \
             app/src/main/assets \
-            app/src/main/res/drawable \
-            app/src/main/res/mipmap-hdpi \
-            app/src/main/res/mipmap-mdpi \
-            app/src/main/res/mipmap-xhdpi \
-            app/src/main/res/mipmap-xxhdpi \
-            app/src/main/res/mipmap-xxxhdpi
+            app/src/main/res/values \
+            app/src/main/res/drawable
 
-          # ----------------------------------------------------------
-          # settings.gradle
-          # ----------------------------------------------------------
+
+      # ============================================================
+      # 8. SETTINGS.GRADLE
+      # ============================================================
+
+      - name: Create Gradle Settings
+        run: |
+          cd "$PROJECT_DIR/android_app"
+
           cat > settings.gradle <<'EOF'
           pluginManagement {
               repositories {
@@ -145,9 +193,15 @@ jobs:
           include(":app")
           EOF
 
-          # ----------------------------------------------------------
-          # build.gradle
-          # ----------------------------------------------------------
+
+      # ============================================================
+      # 9. ROOT BUILD.GRADLE
+      # ============================================================
+
+      - name: Create Root Gradle Build
+        run: |
+          cd "$PROJECT_DIR/android_app"
+
           cat > build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.7.3' apply false
@@ -155,9 +209,15 @@ jobs:
           }
           EOF
 
-          # ----------------------------------------------------------
-          # gradle.properties
-          # ----------------------------------------------------------
+
+      # ============================================================
+      # 10. GRADLE PROPERTIES
+      # ============================================================
+
+      - name: Create Gradle Properties
+        run: |
+          cd "$PROJECT_DIR/android_app"
+
           cat > gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
 
@@ -168,9 +228,15 @@ jobs:
           org.gradle.caching=true
           EOF
 
-          # ----------------------------------------------------------
-          # app/build.gradle
-          # ----------------------------------------------------------
+
+      # ============================================================
+      # 11. APP BUILD.GRADLE
+      # ============================================================
+
+      - name: Create Android App Build
+        run: |
+          cd "$PROJECT_DIR/android_app"
+
           cat > app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
@@ -178,16 +244,21 @@ jobs:
           }
 
           android {
+
               namespace 'com.voxelverse.minecraft2'
+
               compileSdk 35
 
               defaultConfig {
+
                   applicationId 'com.voxelverse.minecraft2'
 
                   minSdk 24
+
                   targetSdk 35
 
                   versionCode 200
+
                   versionName '2.0.0'
 
                   ndk {
@@ -202,8 +273,15 @@ jobs:
               }
 
               buildTypes {
-                  release {
+
+                  debug {
                       minifyEnabled false
+                  }
+
+                  release {
+
+                      minifyEnabled false
+
                       shrinkResources false
 
                       proguardFiles(
@@ -213,13 +291,10 @@ jobs:
                           'proguard-rules.pro'
                       )
                   }
-
-                  debug {
-                      minifyEnabled false
-                  }
               }
 
               externalNativeBuild {
+
                   cmake {
                       path file('src/main/cpp/CMakeLists.txt')
                       version '3.31.6'
@@ -227,6 +302,7 @@ jobs:
               }
 
               packaging {
+
                   jniLibs {
                       useLegacyPackaging = false
                   }
@@ -234,19 +310,24 @@ jobs:
           }
 
           dependencies {
+
               implementation 'androidx.core:core-ktx:1.15.0'
+
               implementation 'androidx.appcompat:appcompat:1.7.0'
           }
           EOF
 
-          # ----------------------------------------------------------
-          # proguard
-          # ----------------------------------------------------------
           touch app/proguard-rules.pro
 
-          # ----------------------------------------------------------
-          # AndroidManifest
-          # ----------------------------------------------------------
+
+      # ============================================================
+      # 12. MANIFEST
+      # ============================================================
+
+      - name: Create Android Manifest
+        run: |
+          cd "$PROJECT_DIR/android_app"
+
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
 
@@ -266,8 +347,13 @@ jobs:
                       android:exported="true">
 
                       <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
+
+                          <action
+                              android:name="android.intent.action.MAIN" />
+
+                          <category
+                              android:name="android.intent.category.LAUNCHER" />
+
                       </intent-filter>
 
                   </activity>
@@ -277,10 +363,14 @@ jobs:
           </manifest>
           EOF
 
-          # ----------------------------------------------------------
-          # Styles
-          # ----------------------------------------------------------
-          mkdir -p app/src/main/res/values
+
+      # ============================================================
+      # 13. THEME
+      # ============================================================
+
+      - name: Create Android Theme
+        run: |
+          cd "$PROJECT_DIR/android_app"
 
           cat > app/src/main/res/values/styles.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
@@ -291,9 +381,10 @@ jobs:
                   name="AppTheme"
                   parent="android:style/Theme.Material.Light.NoActionBar">
 
-                  <item name="android:fontFamily">sans</item>
                   <item name="android:windowFullscreen">true</item>
+
                   <item name="android:windowActionModeOverlay">true</item>
+
                   <item name="android:colorAccent">#FFFFFF</item>
 
               </style>
@@ -301,54 +392,75 @@ jobs:
           </resources>
           EOF
 
-      # ------------------------------------------------------------
-      # 7. Копируем игровые assets
-      # ------------------------------------------------------------
-      - name: Copy game assets
+
+      # ============================================================
+      # 14. COPY ASSETS
+      # ============================================================
+
+      - name: Copy Game Assets
         run: |
           set -e
 
           cd "$PROJECT_DIR"
 
           if [ -d assets ]; then
-            cp -r assets/. android_app/app/src/main/assets/
+
+            echo "Copying assets..."
+
+            cp -r assets/. \
+              android_app/app/src/main/assets/
+
+          else
+
+            echo "No assets directory found."
+
           fi
 
+          echo
           echo "Assets size:"
-          du -sh android_app/app/src/main/assets || true
 
-      # ------------------------------------------------------------
-      # 8. Копируем C++ исходники
-      # ------------------------------------------------------------
-      - name: Prepare native C++ engine
+          du -sh \
+            android_app/app/src/main/assets \
+            2>/dev/null || true
+
+
+      # ============================================================
+      # 15. COPY C++ ENGINE
+      # ============================================================
+
+      - name: Prepare C++ Engine
         run: |
           set -e
 
           cd "$PROJECT_DIR/android_app"
 
-          echo "Searching C++ source..."
+          if [ ! -f ../src/GameEngine.cpp ]; then
 
-          find ../src \
-            -type f \
-            \( -name "*.cpp" -o -name "*.cc" -o -name "*.c" -o -name "*.h" -o -name "*.hpp" \) \
-            -print \
-            2>/dev/null || true
+            echo "ERROR:"
+            echo "../src/GameEngine.cpp not found."
 
-          # GameEngine.cpp — основной файл из проекта.
-          if [ -f ../src/GameEngine.cpp ]; then
-            cp ../src/GameEngine.cpp app/src/main/cpp/GameEngine.cpp
-          else
-            echo "ERROR: src/GameEngine.cpp not found."
+            find ../src \
+              -type f \
+              -print \
+              2>/dev/null || true
+
             exit 1
+
           fi
 
-      # ------------------------------------------------------------
-      # 9. JNI Android bridge
-      # ------------------------------------------------------------
-      - name: Create native Android bridge
-        run: |
-          set -e
+          cp \
+            ../src/GameEngine.cpp \
+            app/src/main/cpp/GameEngine.cpp
 
+          echo "GameEngine.cpp copied."
+
+
+      # ============================================================
+      # 16. JNI BRIDGE
+      # ============================================================
+
+      - name: Create JNI Bridge
+        run: |
           cd "$PROJECT_DIR/android_app"
 
           cat > app/src/main/cpp/native-lib.cpp <<'EOF'
@@ -356,8 +468,13 @@ jobs:
           #include <android/log.h>
 
           #define LOG_TAG "Minecraft2"
+
           #define LOGI(...) \
-              __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+              __android_log_print( \
+                  ANDROID_LOG_INFO, \
+                  LOG_TAG, \
+                  __VA_ARGS__ \
+              )
 
           extern "C"
           JNIEXPORT void JNICALL
@@ -365,7 +482,11 @@ jobs:
               JNIEnv*,
               jobject
           ) {
-              LOGI("Minecraft 2.0 native engine initialized");
+
+              LOGI(
+                  "Minecraft 2.0 native engine initialized"
+              );
+
           }
 
           extern "C"
@@ -374,25 +495,30 @@ jobs:
               JNIEnv*,
               jobject
           ) {
-              LOGI("Minecraft 2.0 native engine shutdown");
+
+              LOGI(
+                  "Minecraft 2.0 native engine shutdown"
+              );
+
           }
           EOF
 
-      # ------------------------------------------------------------
-      # 10. CMake
-      # ------------------------------------------------------------
-      - name: Create CMake configuration
-        run: |
-          set -e
 
+      # ============================================================
+      # 17. CMAKE
+      # ============================================================
+
+      - name: Create CMake Configuration
+        run: |
           cd "$PROJECT_DIR/android_app"
 
           cat > app/src/main/cpp/CMakeLists.txt <<'EOF'
           cmake_minimum_required(VERSION 3.22.1)
 
-          project("voxelengine")
+          project(voxelengine)
 
           set(CMAKE_CXX_STANDARD 17)
+
           set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
           set(CMAKE_CXX_FLAGS_RELEASE
@@ -400,32 +526,41 @@ jobs:
           )
 
           add_library(
+
               voxelengine
+
               SHARED
 
               native-lib.cpp
+
               GameEngine.cpp
+
           )
 
           find_library(
+
               log-lib
+
               log
+
           )
 
           target_link_libraries(
+
               voxelengine
 
               ${log-lib}
+
           )
           EOF
 
-      # ------------------------------------------------------------
-      # 11. MainActivity
-      # ------------------------------------------------------------
+
+      # ============================================================
+      # 18. MAIN ACTIVITY
+      # ============================================================
+
       - name: Create MainActivity
         run: |
-          set -e
-
           cd "$PROJECT_DIR/android_app"
 
           cat > app/src/main/java/com/voxelverse/minecraft2/MainActivity.kt <<'EOF'
@@ -439,39 +574,54 @@ jobs:
           class MainActivity : Activity() {
 
               companion object {
+
                   init {
                       System.loadLibrary("voxelengine")
                   }
+
               }
 
               private external fun nativeInit()
 
               private external fun nativeShutdown()
 
-              override fun onCreate(savedInstanceState: Bundle?) {
+              override fun onCreate(
+                  savedInstanceState: Bundle?
+              ) {
+
                   super.onCreate(savedInstanceState)
 
-                  requestWindowFeature(Window.FEATURE_NO_TITLE)
+                  requestWindowFeature(
+                      Window.FEATURE_NO_TITLE
+                  )
 
                   window.setFlags(
+
                       WindowManager.LayoutParams.FLAG_FULLSCREEN,
+
                       WindowManager.LayoutParams.FLAG_FULLSCREEN
+
                   )
 
                   nativeInit()
               }
 
               override fun onDestroy() {
+
                   nativeShutdown()
+
                   super.onDestroy()
               }
+
           }
           EOF
 
-      # ------------------------------------------------------------
-      # 12. Gradle Wrapper
-      # ------------------------------------------------------------
-      - name: Generate Gradle wrapper
+
+      # ============================================================
+      # 19. GENERATE GRADLE WRAPPER
+      # ============================================================
+
+      - name: Generate Gradle Wrapper
         run: |
           set -e
 
@@ -481,10 +631,22 @@ jobs:
             --gradle-version 8.11.1 \
             --distribution-type bin
 
-      # ------------------------------------------------------------
-      # 13. Сборка DEBUG для проверки
-      # ------------------------------------------------------------
-      - name: Build debug APK
+          chmod +x gradlew
+
+
+      # ============================================================
+      # 20. GRADLE CACHE
+      # ============================================================
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+
+      # ============================================================
+      # 21. DEBUG BUILD
+      # ============================================================
+
+      - name: Build Debug APK
         run: |
           set -e
 
@@ -495,32 +657,46 @@ jobs:
             --stacktrace \
             assembleDebug
 
-      # ------------------------------------------------------------
-      # 14. Проверяем APK
-      # ------------------------------------------------------------
-      - name: Validate debug APK
+
+      # ============================================================
+      # 22. DEBUG APK CHECK
+      # ============================================================
+
+      - name: Validate Debug APK
         run: |
           set -e
 
           APK="$PROJECT_DIR/android_app/app/build/outputs/apk/debug/app-debug.apk"
 
-          test -f "$APK"
+          if [ ! -f "$APK" ]; then
 
-          echo "APK:"
+            echo "Debug APK was not created."
+
+            exit 1
+
+          fi
+
+          echo "Debug APK:"
           ls -lh "$APK"
 
-          echo "File:"
+          echo
+          echo "APK type:"
+
           file "$APK"
 
-          echo "APK contents:"
-          unzip -l "$APK" | grep -E \
-            'AndroidManifest.xml|classes.dex|lib/arm64-v8a|assets/' \
-            | head -50
+          echo
+          echo "ARM64 libraries:"
 
-      # ------------------------------------------------------------
-      # 15. Release APK
-      # ------------------------------------------------------------
-      - name: Build release APK
+          unzip -l "$APK" \
+            | grep "lib/arm64-v8a/" \
+            || true
+
+
+      # ============================================================
+      # 23. RELEASE BUILD
+      # ============================================================
+
+      - name: Build Release APK
         run: |
           set -e
 
@@ -531,76 +707,116 @@ jobs:
             --stacktrace \
             assembleRelease
 
-      # ------------------------------------------------------------
-      # 16. Проверяем ARM64
-      # ------------------------------------------------------------
-      - name: Verify ARM64 native library
+
+      # ============================================================
+      # 24. CHECK RELEASE APK
+      # ============================================================
+
+      - name: Validate ARM64 Release APK
         run: |
           set -e
 
           APK="$PROJECT_DIR/android_app/app/build/outputs/apk/release/app-release.apk"
 
-          test -f "$APK"
+          if [ ! -f "$APK" ]; then
 
-          mkdir -p /tmp/apk_check
+            echo "Release APK was not created."
 
-          unzip -q "$APK" \
-            'lib/arm64-v8a/*' \
-            -d /tmp/apk_check
+            exit 1
 
-          echo "Native libraries:"
-          find /tmp/apk_check -type f -print
-
-          test -f \
-            /tmp/apk_check/lib/arm64-v8a/libvoxelengine.so
-
-          echo "ARM64 library found successfully."
-
-      # ------------------------------------------------------------
-      # 17. APK info
-      # ------------------------------------------------------------
-      - name: Inspect APK
-        run: |
-          set -e
-
-          APK="$PROJECT_DIR/android_app/app/build/outputs/apk/release/app-release.apk"
+          fi
 
           echo "========================================"
-          echo "APK INFORMATION"
+          echo "RELEASE APK"
           echo "========================================"
 
           ls -lh "$APK"
 
           echo
-          echo "SHA256:"
-          sha256sum "$APK"
+          echo "File type:"
+
+          file "$APK"
 
           echo
-          echo "Native libraries:"
-          unzip -l "$APK" | grep "lib/" || true
+          echo "ARM64 library:"
+
+          unzip -l "$APK" \
+            | grep "lib/arm64-v8a/" \
+            || true
 
           echo
           echo "DEX:"
-          unzip -l "$APK" | grep "classes.dex" || true
 
-      # ------------------------------------------------------------
-      # 18. Переименовываем APK
-      # ------------------------------------------------------------
-      - name: Prepare final APK
+          unzip -l "$APK" \
+            | grep "classes.dex" \
+            || true
+
+
+      # ============================================================
+      # 25. VERIFY ARM64 LIBRARY
+      # ============================================================
+
+      - name: Verify ARM64 Native Library
         run: |
           set -e
 
           APK="$PROJECT_DIR/android_app/app/build/outputs/apk/release/app-release.apk"
 
-          cp "$APK" \
+          rm -rf /tmp/apk_check
+
+          mkdir -p /tmp/apk_check
+
+          unzip -q \
+            "$APK" \
+            'lib/arm64-v8a/*' \
+            -d /tmp/apk_check
+
+          LIB="/tmp/apk_check/lib/arm64-v8a/libvoxelengine.so"
+
+          if [ ! -f "$LIB" ]; then
+
+            echo "ERROR: ARM64 library missing."
+
+            exit 1
+
+          fi
+
+          echo "ARM64 native library found:"
+
+          ls -lh "$LIB"
+
+          file "$LIB"
+
+
+      # ============================================================
+      # 26. FINAL APK
+      # ============================================================
+
+      - name: Prepare Final APK
+        run: |
+          set -e
+
+          APK="$PROJECT_DIR/android_app/app/build/outputs/apk/release/app-release.apk"
+
+          cp \
+            "$APK" \
             Minecraft_2.0_ARM64.apk
+
+          echo "Final APK:"
 
           ls -lh Minecraft_2.0_ARM64.apk
 
-      # ------------------------------------------------------------
-      # 19. Загружаем настоящий APK
-      # ------------------------------------------------------------
-      - name: Upload APK artifact
+          echo
+          echo "SHA256:"
+
+          sha256sum Minecraft_2.0_ARM64.apk
+
+
+      # ============================================================
+      # 27. UPLOAD
+      # ============================================================
+
+      - name: Upload Final APK
         uses: actions/upload-artifact@v4
         with:
           name: Minecraft-2.0-ARM64-APK
