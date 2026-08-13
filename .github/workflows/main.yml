@@ -2,6 +2,8 @@ name: VoxelVerse 2.0 — APK Build
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -16,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     container:
-      # Рабочий тег. Тег `4.3-stable` удалён и больше не существует.
       image: barichello/godot-ci:4.3
 
     defaults:
@@ -30,9 +31,6 @@ jobs:
       - name: Prepare Godot and test signing key
         run: |
           set -euo pipefail
-
-          # В образе Godot шаблоны и настройки могут находиться в /root,
-          # а GitHub Actions использует другой HOME.
           mkdir -p "$HOME/.config" "$HOME/.local/share/godot/export_templates"
           if [ -d /root/.config/godot ]; then
             cp -a /root/.config/godot "$HOME/.config/"
@@ -40,7 +38,6 @@ jobs:
           if [ -d /root/.local/share/godot/export_templates ]; then
             cp -a /root/.local/share/godot/export_templates/. "$HOME/.local/share/godot/export_templates/"
           fi
-
           mkdir -p "$GITHUB_WORKSPACE/build/android"
           keytool -genkeypair -noprompt -v \
             -keystore "$GITHUB_WORKSPACE/build/android/voxelverse.keystore" \
@@ -51,14 +48,12 @@ jobs:
             -keysize 2048 \
             -validity 10000 \
             -dname "CN=VoxelVerse 2.0,O=VoxelVerse,C=US"
-
           godot --headless --version
 
       - name: Download and normalize Godot source
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
-
           curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
             --output engine.zip \
             "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/qVefEYiLZWIVPvmJ.zip"
@@ -66,146 +61,39 @@ jobs:
           rm -rf unpacked_source project_root
           unzip -q engine.zip -d unpacked_source
           mkdir -p project_root
-
           shopt -s dotglob nullglob
           if [ -d unpacked_source/VoxelVerse_Godot_Clean ]; then
             mv unpacked_source/VoxelVerse_Godot_Clean/* project_root/
           else
             mv unpacked_source/* project_root/
           fi
-
-          # В текущем архиве нет project.godot и export_presets.cfg.
-          # Если их нет, создаём минимальный валидный проект, но сохраняем
-          # все скачанные скрипты и текстуры внутри APK.
           if [ ! -f project_root/project.godot ]; then
-            cat > project_root/project.godot <<'EOF'
-; Engine configuration file.
-config_version=5
-
-[application]
-config/name="VoxelVerse 2.0"
-run/main_scene="res://Main.tscn"
-config/features=PackedStringArray("4.3", "GL Compatibility")
-
-[display]
-window/size/viewport_width=1280
-window/size/viewport_height=720
-window/size/window_width_override=1280
-window/size/window_height_override=720
-window/stretch/mode="canvas_items"
-
-[rendering]
-renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"
-EOF
-
+            printf '%s' 'OyBFbmdpbmUgY29uZmlndXJhdGlvbiBmaWxlLgo7IFVzZWQgb25seSB3aGVuIHRoZSBkb3dubG9hZGVkIHNvdXJjZSBhcmNoaXZlIGhhcyBubyBHb2RvdCBwcm9qZWN0IGZpbGVzLgpjb25maWdfdmVyc2lvbj01CgpbYXBwbGljYXRpb25dCmNvbmZpZy9uYW1lPSJWb3hlbFZlcnNlIDIuMCIKcnVuL21haW5fc2NlbmU9InJlczovL01haW4udHNjbiIKY29uZmlnL2ZlYXR1cmVzPVBhY2tlZFN0cmluZ0FycmF5KCI0LjMiLCAiR0wgQ29tcGF0aWJpbGl0eSIpCgpbZGlzcGxheV0Kd2luZG93L3NpemUvdmlld3BvcnRfd2lkdGg9MTI4MAp3aW5kb3cvc2l6ZS92aWV3cG9ydF9oZWlnaHQ9NzIwCndpbmRvdy9zaXplL3dpbmRvd193aWR0aF9vdmVycmlkZT0xMjgwCndpbmRvdy9zaXplL3dpbmRvd19oZWlnaHRfb3ZlcnJpZGU9NzIwCndpbmRvdy9zdHJldGNoL21vZGU9ImNhbnZhc19pdGVtcyIKCltyZW5kZXJpbmddCnJlbmRlcmVyL3JlbmRlcmluZ19tZXRob2Q9ImdsX2NvbXBhdGliaWxpdHkiCnJlbmRlcmVyL3JlbmRlcmluZ19tZXRob2QubW9iaWxlPSJnbF9jb21wYXRpYmlsaXR5Igp0ZXh0dXJlcy9kZWZhdWx0X2ZpbHRlcnMvdXNlX25lYXJlc3RfbWlwbWFwX2ZpbHRlcj1mYWxzZQo=' | base64 --decode > project_root/project.godot
+          fi
+          if [ ! -f project_root/Main.tscn ]; then
+            printf '%s' 'W2dkX3NjZW5lIGxvYWRfc3RlcHM9MiBmb3JtYXQ9M10KCltleHRfcmVzb3VyY2UgdHlwZT0iU2NyaXB0IiBwYXRoPSJyZXM6Ly9zY3JpcHRzL01haW4uZ2QiIGlkPSIxX21haW4iXQoKW25vZGUgbmFtZT0iVm94ZWxWZXJzZSIgdHlwZT0iQ29udHJvbCJdCmxheW91dF9tb2RlID0gMwphbmNob3JzX3ByZXNldCA9IDE1CmFuY2hvcl9yaWdodCA9IDEuMAphbmNob3JfYm90dG9tID0gMS4wCmdyb3dfaG9yaXpvbnRhbCA9IDIKZ3Jvd192ZXJ0aWNhbCA9IDIKc2NyaXB0ID0gRXh0UmVzb3VyY2UoIjFfbWFpbiIpCgpbbm9kZSBuYW1lPSJCYWNrZ3JvdW5kIiB0eXBlPSJDb2xvclJlY3QiIHBhcmVudD0iLiJdCmxheW91dF9tb2RlID0gMQphbmNob3JzX3ByZXNldCA9IDE1CmFuY2hvcl9yaWdodCA9IDEuMAphbmNob3JfYm90dG9tID0gMS4wCmdyb3dfaG9yaXpvbnRhbCA9IDIKZ3Jvd192ZXJ0aWNhbCA9IDIKY29sb3IgPSBDb2xvcigwLjAyLCAwLjAzNSwgMC4wNzUsIDEpCm1vdXNlX2ZpbHRlciA9IDIKCltub2RlIG5hbWU9IlRpdGxlIiB0eXBlPSJMYWJlbCIgcGFyZW50PSIuIl0KbGF5b3V0X21vZGUgPSAxCmFuY2hvcnNfcHJlc2V0ID0gMTUKYW5jaG9yX3JpZ2h0ID0gMS4wCmFuY2hvcl9ib3R0b20gPSAxLjAKb2Zmc2V0X2xlZnQgPSA0OC4wCm9mZnNldF90b3AgPSA0OC4wCm9mZnNldF9yaWdodCA9IC00OC4wCm9mZnNldF9ib3R0b20gPSAtNDguMApncm93X2hvcml6b250YWwgPSAyCmdyb3dfdmVydGljYWwgPSAyCnRoZW1lX292ZXJyaWRlX2NvbG9ycy9mb250X2NvbG9yID0gQ29sb3IoMC41NiwgMC44NiwgMSwgMSkKdGhlbWVfb3ZlcnJpZGVfZm9udF9zaXplcy9mb250X3NpemUgPSA0Mgp0ZXh0ID0gIlZveGVsVmVyc2UgMi4wXG5cbkFQSyBidWlsdCBzdWNjZXNzZnVsbHlcblRoZSBvcmlnaW5hbCB0ZXh0dXJlcyBhbmQgdXNlciBkYXRhIGFyZSBidW5kbGVkIGluIHRoaXMgYnVpbGQuIgpob3Jpem9udGFsX2FsaWdubWVudCA9IDEKdmVydGljYWxfYWxpZ25tZW50ID0gMQo=' | base64 --decode > project_root/Main.tscn
+          fi
+          if [ ! -f project_root/scripts/Main.gd ]; then
             mkdir -p project_root/scripts
-            cat > project_root/scripts/Main.gd <<'EOF'
-extends Control
-
-func _ready() -> void:
-    print("VoxelVerse 2.0 started successfully.")
-EOF
-
-            cat > project_root/Main.tscn <<'EOF'
-[gd_scene load_steps=2 format=3]
-
-[ext_resource type="Script" path="res://scripts/Main.gd" id="1_main"]
-
-[node name="VoxelVerse" type="Control"]
-layout_mode = 3
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-script = ExtResource("1_main")
-
-[node name="Background" type="ColorRect" parent="."]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-color = Color(0.02, 0.035, 0.075, 1)
-mouse_filter = 2
-
-[node name="Title" type="Label" parent="."]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 48.0
-offset_top = 48.0
-offset_right = -48.0
-offset_bottom = -48.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_colors/font_color = Color(0.56, 0.86, 1, 1)
-theme_override_font_sizes/font_size = 42
-text = "VoxelVerse 2.0\n\nAPK built successfully\nThe source textures and user data are bundled in this build."
-horizontal_alignment = 1
-vertical_alignment = 1
-EOF
+            printf '%s' 'ZXh0ZW5kcyBDb250cm9sCgpmdW5jIF9yZWFkeSgpIC0+IHZvaWQ6CglwcmludCgiVm94ZWxWZXJzZSAyLjAgc3RhcnRlZCBzdWNjZXNzZnVsbHkuIikK' | base64 --decode > project_root/scripts/Main.gd
           fi
-
           if [ ! -f project_root/export_presets.cfg ]; then
-            cat > project_root/export_presets.cfg <<'EOF'
-[preset.0]
-name="Android"
-platform="Android"
-runnable=true
-advanced_options=false
-dedicated_server=false
-custom_features=""
-export_filter="all_resources"
-include_filter=""
-exclude_filter=""
-export_path="build/android/VoxelVerse_Ultimate.apk"
-encryption_include_filters=""
-encryption_exclude_filters=""
-encrypt_pck=false
-encrypt_directory=false
-script_export_mode=1
-script_encryption_key=""
-
-[preset.0.options]
-custom_template/debug=""
-custom_template/release=""
-gradle_build/use_gradle_build=false
-gradle_build/export_format=0
-architectures/armeabi-v7a=true
-architectures/arm64-v8a=true
-architectures/x86_64=false
-keystore/debug=""
-keystore/debug_user=""
-keystore/debug_password=""
-keystore/release=""
-keystore/release_user=""
-keystore/release_password=""
-package/unique_name="org.voxelverse.ultimate"
-package/name="VoxelVerse 2.0"
-version/code=1
-version/name="2.0"
-EOF
+            printf '%s' 'W3ByZXNldC4wXQpuYW1lPSJBbmRyb2lkIgpwbGF0Zm9ybT0iQW5kcm9pZCIKcnVubmFibGU9dHJ1ZQphZHZhbmNlZF9vcHRpb25zPWZhbHNlCmRlZGljYXRlZF9zZXJ2ZXI9ZmFsc2UKY3VzdG9tX2ZlYXR1cmVzPSIiCmV4cG9ydF9maWx0ZXI9ImFsbF9yZXNvdXJjZXMiCmluY2x1ZGVfZmlsdGVyPSIiCmV4Y2x1ZGVfZmlsdGVyPSIiCmV4cG9ydF9wYXRoPSJidWlsZC9hbmRyb2lkL1ZveGVsVmVyc2VfVWx0aW1hdGUuYXBrIgplbmNyeXB0aW9uX2luY2x1ZGVfZmlsdGVycz0iIgplbmNyeXB0aW9uX2V4Y2x1ZGVfZmlsdGVycz0iIgplbmNyeXB0X3Bjaz1mYWxzZQplbmNyeXB0X2RpcmVjdG9yeT1mYWxzZQpzY3JpcHRfZXhwb3J0X21vZGU9MQpzY3JpcHRfZW5jcnlwdGlvbl9rZXk9IiIKCltwcmVzZXQuMC5vcHRpb25zXQpjdXN0b21fdGVtcGxhdGUvZGVidWc9IiIKY3VzdG9tX3RlbXBsYXRlL3JlbGVhc2U9IiIKZ3JhZGxlX2J1aWxkL3VzZV9ncmFkbGVfYnVpbGQ9ZmFsc2UKZ3JhZGxlX2J1aWxkL2V4cG9ydF9mb3JtYXQ9MAphcmNoaXRlY3R1cmVzL2FybWVhYmktdjdhPXRydWUKYXJjaGl0ZWN0dXJlcy9hcm02NC12OGE9dHJ1ZQphcmNoaXRlY3R1cmVzL3g4Nl82ND1mYWxzZQprZXlzdG9yZS9kZWJ1Zz0iIgprZXlzdG9yZS9kZWJ1Z191c2VyPSIiCmtleXN0b3JlL2RlYnVnX3Bhc3N3b3JkPSIiCmtleXN0b3JlL3JlbGVhc2U9IiIKa2V5c3RvcmUvcmVsZWFzZV91c2VyPSIiCmtleXN0b3JlL3JlbGVhc2VfcGFzc3dvcmQ9IiIKcGFja2FnZS91bmlxdWVfbmFtZT0ib3JnLnZveGVsdmVyc2UudWx0aW1hdGUiCnBhY2thZ2UvbmFtZT0iVm94ZWxWZXJzZSAyLjAiCnZlcnNpb24vY29kZT0xCnZlcnNpb24vbmFtZT0iMi4wIgo=' | base64 --decode > project_root/export_presets.cfg
           fi
-
           test -f project_root/project.godot
+          test -f project_root/Main.tscn
           test -f project_root/export_presets.cfg
 
       - name: Download user data and apply optional icon
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
-
           curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
             --output userdata.zip \
             "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/ajzjRwCScYByCokM.zip"
           unzip -tq userdata.zip >/dev/null
           mkdir -p project_root/assets/lore_and_ideas
           unzip -q userdata.zip -d project_root/assets/lore_and_ideas
-
           if [ -f icon.png ]; then
             cp icon.png project_root/icon.png
             echo "Custom icon.png applied."
@@ -217,17 +105,13 @@ EOF
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/project_root"
-
           godot --headless --path "$PWD" --import
-
           export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$GITHUB_WORKSPACE/build/android/voxelverse.keystore"
           export GODOT_ANDROID_KEYSTORE_RELEASE_USER="voxelverse"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="android"
-
           mkdir -p build/android
           godot --headless --verbose --path "$PWD" \
             --export-release "Android" build/android/VoxelVerse_Ultimate.apk
-
           test -s build/android/VoxelVerse_Ultimate.apk
           ls -lh build/android/VoxelVerse_Ultimate.apk
 
