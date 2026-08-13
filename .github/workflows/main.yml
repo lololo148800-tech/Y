@@ -42,13 +42,41 @@ jobs:
               exit 1
             fi
           fi
-          mkdir -p "$HOME/.config" "$HOME/.local/share/godot/export_templates"
-          if [ -d /root/.config/godot ]; then
-            cp -a /root/.config/godot "$HOME/.config/"
-          fi
+          export ANDROID_HOME="/usr/lib/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+          export PATH="$ANDROID_HOME/cmdline-tools/cmdline-tools/bin:$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/cmdline-tools/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
+            "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmdline-tools;latest"
+          for required_file in \
+            "$JAVA_HOME/bin/java" \
+            "$ANDROID_HOME/platform-tools/adb" \
+            "$ANDROID_HOME/platforms/android-34/android.jar" \
+            "$ANDROID_HOME/build-tools/34.0.0/aapt2"
+          do
+            test -e "$required_file" || { echo "Missing required Android tool: $required_file"; exit 1; }
+          done
+          java -version
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --list | sed -n '1,80p'
+
+          mkdir -p "$HOME/.config/godot" "$HOME/.local/share/godot/export_templates"
           if [ -d /root/.local/share/godot/export_templates ]; then
             cp -a /root/.local/share/godot/export_templates/. "$HOME/.local/share/godot/export_templates/"
           fi
+          cat > "$HOME/.config/godot/editor_settings-4.3.tres" <<'GODOT_SETTINGS'
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"
+          export/android/android_sdk_path = "/usr/lib/android-sdk"
+          export/android/debug_keystore = "/root/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          export/android/force_system_user = false
+          GODOT_SETTINGS
           mkdir -p "$GITHUB_WORKSPACE/build/android"
           keytool -genkeypair -noprompt -v \
             -keystore "$GITHUB_WORKSPACE/build/android/voxelverse.keystore" \
@@ -69,6 +97,7 @@ jobs:
             --output-document=engine.zip \
             "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/qVefEYiLZWIVPvmJ.zip"
           unzip -tq engine.zip >/dev/null
+          zipinfo -t engine.zip
           rm -rf unpacked_source project_root
           unzip -q engine.zip -d unpacked_source
           mkdir -p project_root
@@ -94,6 +123,9 @@ jobs:
           test -f project_root/project.godot
           test -f project_root/Main.tscn
           test -f project_root/export_presets.cfg
+          echo "--- Godot project preflight ---"
+          find project_root -maxdepth 2 -type f \( -name project.godot -o -name export_presets.cfg -o -name Main.tscn \) -print
+          sed -n '1,120p' project_root/export_presets.cfg
 
       - name: Download user data and apply optional icon
         run: |
@@ -103,8 +135,10 @@ jobs:
             --output-document=userdata.zip \
             "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/ajzjRwCScYByCokM.zip"
           unzip -tq userdata.zip >/dev/null
+          zipinfo -t userdata.zip
           mkdir -p project_root/assets/lore_and_ideas
           unzip -q userdata.zip -d project_root/assets/lore_and_ideas
+          du -sh project_root/assets/lore_and_ideas
           if [ -f icon.png ]; then
             cp icon.png project_root/icon.png
             echo "Custom icon.png applied."
@@ -116,15 +150,30 @@ jobs:
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/project_root"
-          godot --headless --path "$PWD" --import
+          godot --headless --path "$PWD" --import 2>&1 | tee "$GITHUB_WORKSPACE/build/android/godot-import.log"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$GITHUB_WORKSPACE/build/android/voxelverse.keystore"
           export GODOT_ANDROID_KEYSTORE_RELEASE_USER="voxelverse"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="android"
           mkdir -p build/android
           godot --headless --verbose --path "$PWD" \
-            --export-release "Android" build/android/VoxelVerse_Ultimate.apk
+            --export-release "Android" build/android/VoxelVerse_Ultimate.apk \
+            2>&1 | tee build/android/godot-export.log
           test -s build/android/VoxelVerse_Ultimate.apk
           ls -lh build/android/VoxelVerse_Ultimate.apk
+          sha256sum build/android/VoxelVerse_Ultimate.apk | tee build/android/VoxelVerse_Ultimate.apk.sha256
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoxelVerse-build-diagnostics
+          path: |
+            project_root/build/android/*.log
+            project_root/build/android/*.sha256
+            project_root/export_presets.cfg
+            project_root/project.godot
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
