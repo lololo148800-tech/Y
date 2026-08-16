@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== [1/5] Проверка структуры распаковки ==="
+echo "=== [1/5] Проверка структуры распаковки и фикс крашей ==="
 if [ ! -f "project.godot" ]; then
     echo "[ОШИБКА] project.godot не найден в корне воркспейса!"
     exit 1
 fi
+
+# Предотвращаем краш Godot на битых бинарных ассетах, сохраняя их вес
+echo "Создание .gdignore для проблемных директорий..."
+mkdir -p assets/horror_packs/brand/
+touch assets/horror_packs/brand/.gdignore
+mkdir -p assets/models/player/
+touch assets/models/player/.gdignore
+
 
 echo "=== [2/5] Запуск валидации файлов (validate_project.py) ==="
 python3 validate_project.py

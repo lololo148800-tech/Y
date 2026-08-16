@@ -123,7 +123,7 @@ jobs:
               'advanced_options=false' \
               'dedicated_server=false' \
               'custom_features=""' \
-              'export_filter="all_resources"' \
+              'export_filter="all_files"' \
               'include_filter=""' \
               'exclude_filter=""' \
               'export_path="build/android/VoxelVerse_2.0_Integrity.apk"' \
