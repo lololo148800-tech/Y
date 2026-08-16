@@ -1,10 +1,24 @@
-name: Simple Test
+name: VoxelVerse Final Build
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
-  test:
+  build-android:
     runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.3
     steps:
-      - run: echo "Hello World"
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build
+        run: |
+          echo "Starting build..."
+          # Here I will put the logic from ci_build_helper.sh directly
+          # But for now, let's just see if it starts
+          echo "Success"
