@@ -62,12 +62,13 @@ jobs:
           # GitHub Actions container uses /github/home as HOME
           GH_HOME="/github/home"
           mkdir -p "$GH_HOME/.config/godot" "$GH_HOME/.local/share/godot/export_templates/4.3.stable"
-          
-          # Copy templates from root if they exist
+
+          # Preserve the Godot CI image's own configuration, as required by godot-ci.
+          if [ -d "/root/.config/godot" ]; then
+            cp -a /root/.config/godot/. "$GH_HOME/.config/godot/"
+          fi
           if [ -d "/root/.local/share/godot/export_templates/4.3.stable" ]; then
-            cp -r /root/.local/share/godot/export_templates/4.3.stable/* "$GH_HOME/.local/share/godot/export_templates/4.3.stable/"
-          elif [ -d "/root/.local/share/godot/export_templates" ]; then
-            cp -r /root/.local/share/godot/export_templates/* "$GH_HOME/.local/share/godot/export_templates/4.3.stable/"
+            cp -a /root/.local/share/godot/export_templates/4.3.stable/. "$GH_HOME/.local/share/godot/export_templates/4.3.stable/"
           fi
 
           keytool -genkeypair -noprompt -v \
@@ -82,6 +83,7 @@ jobs:
 
           SETTINGS_CONTENT=$(printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "%s"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\nexport/android/force_system_user = false\n' \
             "$JAVA_HOME" "$ANDROID_HOME" "$GH_HOME/.config/godot/debug.keystore")
+          # Keep the settings file valid and deterministic for both possible Godot filenames.
           echo "$SETTINGS_CONTENT" > "$GH_HOME/.config/godot/editor_settings-4.tres"
           echo "$SETTINGS_CONTENT" > "$GH_HOME/.config/godot/editor_settings-4.3.tres"
 
@@ -178,6 +180,19 @@ jobs:
               > export_presets.cfg
           fi
 
+          # Godot 4.3 stores sensitive export credentials outside export_presets.cfg.
+          mkdir -p .godot
+          cat > .godot/export_credentials.cfg <<CREDENTIALS
+          [preset.0]
+          [preset.0.options]
+          keystore/debug="$GH_HOME/.config/godot/debug.keystore"
+          keystore/debug_user="androiddebugkey"
+          keystore/debug_password="android"
+          keystore/release="$GH_HOME/.config/godot/debug.keystore"
+          keystore/release_user="androiddebugkey"
+          keystore/release_password="android"
+          CREDENTIALS
+
           echo "--- Project size ---"
           du -sh .
 
@@ -185,6 +200,13 @@ jobs:
         run: |
           set -euo pipefail
           export HOME="/github/home"
+          export ANDROID_HOME="/usr/lib/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+          export PATH="$ANDROID_HOME/cmdline-tools/cmdline-tools/bin:$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="/github/home/.config/godot/debug.keystore"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="/github/home/.config/godot/debug.keystore"
           export GODOT_ANDROID_KEYSTORE_RELEASE_USER="androiddebugkey"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="android"
