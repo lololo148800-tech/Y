@@ -4,5 +4,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.3
     steps:
-      - run: echo "Starting"
+      - run: echo "Inside container"
