@@ -14,13 +14,17 @@ jobs:
         run: |
           apt-get update && apt-get install -y wget python3 ffmpeg
           wget -q "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/vKStvlJmXrHcMSJA.zip" -O engine.zip
-          unzip -q engine.zip -d tmp && (mv tmp/voxel_source/* . || mv tmp/* .)
+          mkdir -p tmp
+          unzip -q engine.zip -d tmp
+          # Перемещаем всё из корня архива в текущую папку
+          shopt -s dotglob
+          mv tmp/* .
           rm -rf tmp engine.zip
           
-          # Настраиваем окружение из пре-бейкед файлов
+          # Настраиваем окружение
           mkdir -p /github/home/.config/godot
           mkdir -p /github/home/.local/share/godot/export_templates/4.3.stable
-          cp .godot_config/config/* /github/home/.config/godot/
+          cp -r .godot_config/config/* /github/home/.config/godot/
           
           TEMPLATE_PATH=$(find /root -name "android_debug.apk" | xargs dirname | head -n 1)
           if [ -n "$TEMPLATE_PATH" ]; then
