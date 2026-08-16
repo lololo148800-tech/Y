@@ -72,13 +72,13 @@ jobs:
             -validity 10000 \
             -dname "CN=VoxelVerse Integrity,O=VoxelVerse,C=US"
 
-          cat > "$HOME/.config/godot/editor_settings-4.3.tres" <<GODOT_SETTINGS
+          cat > "/root/.config/godot/editor_settings-4.3.tres" <<GODOT_SETTINGS
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
-          export/android/java_sdk_path = "$JAVA_HOME"
-          export/android/android_sdk_path = "$ANDROID_HOME"
-          export/android/debug_keystore = "$HOME/.config/godot/debug.keystore"
+          export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"
+          export/android/android_sdk_path = "/usr/lib/android-sdk"
+          export/android/debug_keystore = "/root/.config/godot/debug.keystore"
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           export/android/force_system_user = false
@@ -133,7 +133,6 @@ jobs:
           fi
 
           # БЛОК АВТОСОЗДАНИЯ CONFIG (Страховка)
-          # Используем формат из твоей рабочей версии 8КБ
           echo "Создание мастер-конфига Android-пресета..."
           printf '%s\n' \
             '[preset.0]' \
@@ -162,10 +161,10 @@ jobs:
             'architectures/armeabi-v7a=false' \
             'architectures/arm64-v8a=true' \
             'architectures/x86_64=false' \
-            'keystore/debug="'$HOME'/.config/godot/debug.keystore"' \
+            'keystore/debug="/root/.config/godot/debug.keystore"' \
             'keystore/debug_user="androiddebugkey"' \
             'keystore/debug_password="android"' \
-            'keystore/release="'$HOME'/.config/godot/debug.keystore"' \
+            'keystore/release="/root/.config/godot/debug.keystore"' \
             'keystore/release_user="androiddebugkey"' \
             'keystore/release_password="android"' \
             'package/unique_name="com.voxelverse.game"' \
@@ -174,13 +173,13 @@ jobs:
             'version/name="2.0.0"' \
             > export_presets.cfg
           
-          # Проверка шаблонов экспорта
-          ls -R /root/.local/share/godot/export_templates/ 2>/dev/null || echo "Templates not found in /root"
-          ls -R $HOME/.local/share/godot/export_templates/ 2>/dev/null || echo "Templates not found in $HOME"
-          
-          # Чистка несовместимых ресурсов, вызывающих ошибки импорта
+          # Полная очистка перед импортом
+          find . -name "*.import" -delete
           find assets -name "*.mesh" -delete
           find assets -name "*.material" -delete
+          
+          echo "--- SDK Check ---"
+          ls -l /usr/lib/android-sdk/platforms/android-34/android.jar || echo "SDK JAR MISSING!"
 
           echo "--- Project size ---"
           du -sh .
