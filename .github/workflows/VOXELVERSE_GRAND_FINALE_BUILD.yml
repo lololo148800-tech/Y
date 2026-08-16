@@ -57,13 +57,15 @@ jobs:
             test -e "$required_file" || { echo "Missing required Android tool: $required_file"; exit 1; }
           done
 
-          mkdir -p "$HOME/.config/godot" "$HOME/.local/share/godot/export_templates"
+          mkdir -p "/root/.config/godot" "/root/.local/share/godot/export_templates"
           if [ -d /root/.local/share/godot/export_templates ]; then
-            cp -a /root/.local/share/godot/export_templates/. "$HOME/.local/share/godot/export_templates/"
+            echo "Export templates found in /root/.local/share/godot/export_templates"
+          else
+            echo "Templates missing, creating dummy directory"
           fi
 
           keytool -genkeypair -noprompt -v \
-            -keystore "$HOME/.config/godot/debug.keystore" \
+            -keystore "/root/.config/godot/debug.keystore" \
             -storepass android \
             -alias androiddebugkey \
             -keypass android \
@@ -72,17 +74,18 @@ jobs:
             -validity 10000 \
             -dname "CN=VoxelVerse Integrity,O=VoxelVerse,C=US"
 
+          # Создаем настройки именно в /root, так как Godot в контейнере запускается от root
           cat > "/root/.config/godot/editor_settings-4.3.tres" <<GODOT_SETTINGS
-          [gd_resource type="EditorSettings" format=3]
+[gd_resource type="EditorSettings" format=3]
 
-          [resource]
-          export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"
-          export/android/android_sdk_path = "/usr/lib/android-sdk"
-          export/android/debug_keystore = "/root/.config/godot/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          export/android/force_system_user = false
-          GODOT_SETTINGS
+[resource]
+export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"
+export/android/android_sdk_path = "/usr/lib/android-sdk"
+export/android/debug_keystore = "/root/.config/godot/debug.keystore"
+export/android/debug_keystore_user = "androiddebugkey"
+export/android/debug_keystore_pass = "android"
+export/android/force_system_user = false
+GODOT_SETTINGS
 
           java -version
           godot --headless --version
