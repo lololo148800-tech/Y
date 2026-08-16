@@ -44,7 +44,11 @@ jobs:
           export SDKMANAGER="$ANDROID_HOME/cmdline-tools/cmdline-tools/bin/sdkmanager"
 
           test -x "$SDKMANAGER"
+          set +e
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          sdkmanager_status="${PIPESTATUS[1]}"
+          set -e
+          test "$sdkmanager_status" -eq 0 || { echo "sdkmanager license setup failed with status $sdkmanager_status"; exit "$sdkmanager_status"; }
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
             "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmdline-tools;latest"
 
