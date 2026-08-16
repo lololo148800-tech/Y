@@ -21,8 +21,8 @@ jobs:
           wget -q "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/vKStvlJmXrHcMSJA.zip" -O engine.zip
           mkdir -p tmp
           unzip -q engine.zip -d tmp
-          shopt -s dotglob
-          mv tmp/* .
+          # Копируем всё кроме .github, чтобы не было конфликтов
+          cp -r tmp/* . 2>/dev/null || true
           rm -rf tmp engine.zip
           
           mkdir -p /github/home/.config/godot
