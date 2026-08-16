@@ -108,10 +108,10 @@ jobs:
 
           shopt -s dotglob nullglob
           if [ -d "extracted_root/voxel_source" ]; then
-              mv extracted_root/voxel_source/* .
+              cp -r extracted_root/voxel_source/* . 2>/dev/null || true
               rm -rf extracted_root
           else
-              mv extracted_root/* .
+              cp -r extracted_root/* . 2>/dev/null || true
               rmdir extracted_root
           fi
 
