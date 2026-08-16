@@ -13,3 +13,9 @@ jobs:
           mkdir -p /github/home/.config/godot
           keytool -genkeypair -noprompt -v -keystore /github/home/.config/godot/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=VoxelVerse"
           printf '[gd_resource type="EditorSettings" format=3]\n[resource]\nexport/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"\nexport/android/android_sdk_path = "/usr/lib/android-sdk"\nexport/android/debug_keystore = "/github/home/.config/godot/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' > /github/home/.config/godot/editor_settings-4.3.tres
+      - name: Assets
+        run: |
+          wget -q "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/onktkgFtPgiZDpFS.zip" -O engine.zip
+          unzip -q engine.zip -d tmp && (mv tmp/voxel_source/* . || mv tmp/* .)
+          rm -rf tmp engine.zip
+          printf "[preset.0]\nname=\"Android\"\nplatform=\"Android\"\nrunnable=true\nexport_path=\"build/android/VoxelVerse_2.0_Integrity.apk\"\n[preset.0.options]\narchitectures/armeabi-v7a=false\narchitectures/arm64-v8a=true\nkeystore/debug=\"/github/home/.config/godot/debug.keystore\"\nkeystore/debug_user=\"androiddebugkey\"\nkeystore/debug_password=\"android\"\nkeystore/release=\"/github/home/.config/godot/debug.keystore\"\nkeystore/release_user=\"androiddebugkey\"\nkeystore/release_password=\"android\"\npackage/unique_name=\"com.voxelverse.game\"\npackage/name=\"VoxelVerse 2.0\"\n" > export_presets.cfg
