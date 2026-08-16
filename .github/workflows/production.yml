@@ -1,6 +1,8 @@
 name: VoxelVerse 2.0 - INTEGRITY GRAND FINALE BUILD
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
