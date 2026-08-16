@@ -133,13 +133,14 @@ jobs:
           fi
 
           # БЛОК АВТОСОЗДАНИЯ CONFIG (Страховка)
-          # Всегда перезаписываем для гарантии правильных путей в Godot 4.3
+          # Используем формат из твоей рабочей версии 8КБ
           echo "Создание мастер-конфига Android-пресета..."
           printf '%s\n' \
             '[preset.0]' \
             'name="Android"' \
             'platform="Android"' \
             'runnable=true' \
+            'advanced_options=false' \
             'dedicated_server=false' \
             'custom_features=""' \
             'export_filter="all_resources"' \
@@ -150,28 +151,32 @@ jobs:
             'encryption_exclude_filters=""' \
             'encrypt_pck=false' \
             'encrypt_directory=false' \
+            'script_export_mode=1' \
+            'script_encryption_key=""' \
             '' \
             '[preset.0.options]' \
-            'custom_build/use_custom_build=false' \
-            'architectures/arm64-v8a=true' \
+            'custom_template/debug=""' \
+            'custom_template/release=""' \
+            'gradle_build/use_gradle_build=false' \
+            'gradle_build/export_format=0' \
             'architectures/armeabi-v7a=false' \
-            'architectures/x86=false' \
+            'architectures/arm64-v8a=true' \
             'architectures/x86_64=false' \
+            'keystore/debug="'$HOME'/.config/godot/debug.keystore"' \
+            'keystore/debug_user="androiddebugkey"' \
+            'keystore/debug_password="android"' \
+            'keystore/release="'$HOME'/.config/godot/debug.keystore"' \
+            'keystore/release_user="androiddebugkey"' \
+            'keystore/release_password="android"' \
             'package/unique_name="com.voxelverse.game"' \
             'package/name="VoxelVerse 2.0"' \
-            'package/version_code="200"' \
-            'package/version_name="2.0.0"' \
-            'package/sign_debug=true' \
-            'package/debug_keystore="'$HOME'/.config/godot/debug.keystore"' \
-            'package/debug_keystore_user="androiddebugkey"' \
-            'package/debug_keystore_pass="android"' \
-            'package/exempt_from_storage_enforcement=false' \
-            'launcher_icons/main_192x192="res://icon.png"' \
-            'launcher_icons/adaptive_foreground_432x432="res://icon.png"' \
-            'launcher_icons/adaptive_background_432x432="res://icon.png"' \
-            'permissions/internet=true' \
-            'permissions/write_external_storage=false' \
+            'version/code=200' \
+            'version/name="2.0.0"' \
             > export_presets.cfg
+          
+          # Проверка шаблонов экспорта
+          ls -R /root/.local/share/godot/export_templates/ 2>/dev/null || echo "Templates not found in /root"
+          ls -R $HOME/.local/share/godot/export_templates/ 2>/dev/null || echo "Templates not found in $HOME"
           
           # Чистка несовместимых ресурсов, вызывающих ошибки импорта
           find assets -name "*.mesh" -delete
