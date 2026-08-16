@@ -1,0 +1,203 @@
+name: VoxelVerse 2.0 - INTEGRITY GRAND FINALE BUILD
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voxelverse-integrity-android
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    name: Build Integrity Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    container:
+      image: barichello/godot-ci:4.3
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Android SDK, Java and signing key
+        run: |
+          set -euo pipefail
+
+          if ! command -v wget >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends wget ca-certificates
+          fi
+
+          export ANDROID_HOME="/usr/lib/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+          export PATH="$ANDROID_HOME/cmdline-tools/cmdline-tools/bin:$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH"
+          export SDKMANAGER="$ANDROID_HOME/cmdline-tools/cmdline-tools/bin/sdkmanager"
+
+          test -x "$SDKMANAGER"
+          set +e
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          sdkmanager_status="${PIPESTATUS[1]}"
+          set -e
+          test "$sdkmanager_status" -eq 0 || { echo "sdkmanager license setup failed with status $sdkmanager_status"; exit "$sdkmanager_status"; }
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
+            "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmdline-tools;latest"
+
+          for required_file in \
+            "$JAVA_HOME/bin/java" \
+            "$ANDROID_HOME/platform-tools/adb" \
+            "$ANDROID_HOME/platforms/android-34/android.jar" \
+            "$ANDROID_HOME/build-tools/34.0.0/aapt2"
+          do
+            test -e "$required_file" || { echo "Missing required Android tool: $required_file"; exit 1; }
+          done
+
+          mkdir -p "$HOME/.config/godot" "$HOME/.local/share/godot/export_templates"
+          if [ -d /root/.local/share/godot/export_templates ]; then
+            cp -a /root/.local/share/godot/export_templates/. "$HOME/.local/share/godot/export_templates/"
+          fi
+
+          keytool -genkeypair -noprompt -v \
+            -keystore "$HOME/.config/godot/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=VoxelVerse Integrity,O=VoxelVerse,C=US"
+
+          cat > "$HOME/.config/godot/editor_settings-4.3.tres" <<GODOT_SETTINGS
+[gd_resource type="EditorSettings" format=3]
+
+[resource]
+export/android/java_sdk_path = "$JAVA_HOME"
+export/android/android_sdk_path = "$ANDROID_HOME"
+export/android/debug_keystore = "$HOME/.config/godot/debug.keystore"
+export/android/debug_keystore_user = "androiddebugkey"
+export/android/debug_keystore_pass = "android"
+export/android/force_system_user = false
+GODOT_SETTINGS
+
+          java -version
+          godot --headless --version
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Download and Extract Master Project (~3.9GB)
+        run: |
+          set -euo pipefail
+          echo "Скачивание исправленного мастер-проекта (Integrity Verified Edition)..."
+          wget --continue --tries=20 --waitretry=10 --timeout=120 --read-timeout=120 \
+            --progress=dot:giga \
+            --output-document=engine.zip \
+            "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/vKStvlJmXrHcMSJA.zip"
+
+          test -s engine.zip
+          unzip -tq engine.zip >/dev/null
+
+          rm -rf extracted_root
+          unzip -q -o engine.zip -d extracted_root
+          rm -f engine.zip
+
+          shopt -s dotglob nullglob
+          if [ -d "extracted_root/voxel_source" ]; then
+              mv extracted_root/voxel_source/* .
+              rm -rf extracted_root
+          else
+              mv extracted_root/* .
+              rmdir extracted_root
+          fi
+
+          if [ ! -f "project.godot" ]; then
+              echo "[ОШИБКА] project.godot не найден в корне воркспейса после распаковки!"
+              find . -maxdepth 3 -type f -name "*.godot" | sed -n '1,50p'
+              exit 1
+          fi
+
+          # Автосоздание export_presets.cfg, если его нет в архиве
+          if [ ! -f "export_presets.cfg" ]; then
+            echo "Android export preset отсутствует; создаю чистый Android-пресет."
+            printf '%s\n' \
+              '[preset.0]' \
+              'name="Android"' \
+              'platform="Android"' \
+              'runnable=true' \
+              'advanced_options=false' \
+              'dedicated_server=false' \
+              'custom_features=""' \
+              'export_filter="all_resources"' \
+              'include_filter=""' \
+              'exclude_filter=""' \
+              'export_path="build/android/VoxelVerse_2.0_Integrity.apk"' \
+              'encryption_include_filters=""' \
+              'encryption_exclude_filters=""' \
+              'encrypt_pck=false' \
+              'encrypt_directory=false' \
+              'script_export_mode=1' \
+              'script_encryption_key=""' \
+              '' \
+              '[preset.0.options]' \
+              'custom_template/debug=""' \
+              'custom_template/release=""' \
+              'gradle_build/use_gradle_build=false' \
+              'gradle_build/export_format=0' \
+              'architectures/armeabi-v7a=false' \
+              'architectures/arm64-v8a=true' \
+              'architectures/x86_64=false' \
+              'keystore/debug="'"$HOME"'/.config/godot/debug.keystore"' \
+              'keystore/debug_user="androiddebugkey"' \
+              'keystore/debug_password="android"' \
+              'keystore/release=""' \
+              'keystore/release_user=""' \
+              'keystore/release_password=""' \
+              'package/unique_name="com.voxelverse.game"' \
+              'package/name="VoxelVerse 2.0"' \
+              'version/code=200' \
+              'version/name="2.0.0"' \
+              'permissions/internet=true' \
+              > export_presets.cfg
+          fi
+
+          echo "--- Project size ---"
+          du -sh .
+
+      - name: Run Build and Validation Helper
+        run: |
+          set -euo pipefail
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$HOME/.config/godot/debug.keystore"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_USER="androiddebugkey"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="android"
+          test -f ci_build_helper.sh || { echo "[ОШИБКА] ci_build_helper.sh не найден в репозитории!"; exit 1; }
+          chmod +x ci_build_helper.sh
+          ./ci_build_helper.sh
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoxelVerse-Integrity-build-diagnostics
+          path: |
+            build/android/*.log
+            build/android/*.sha256
+            project.godot
+            export_presets.cfg
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoxelVerse-2.0-Integrity-APK
+          path: |
+            build/android/VoxelVerse_2.0_Integrity.apk
+            build/android/VoxelVerse_2.0_Integrity.apk.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
