@@ -1,4 +1,4 @@
-name: VoxelVerse 2.0 — APK Build
+name: VoxelVerse 2.0 - PERSISTENCE EDITION
 
 on:
   workflow_dispatch:
@@ -9,14 +9,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: voxelverse-android-build
+  group: voxelverse-persistence-android
   cancel-in-progress: true
 
 jobs:
   build-android:
-    name: Build VoxelVerse Android APK
+    name: Build Persistence Edition Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 120
     container:
       image: barichello/godot-ci:4.3
 
@@ -28,29 +28,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Prepare Godot and test signing key
+      - name: Prepare Android SDK, Java and signing key
         run: |
           set -euo pipefail
+
           if ! command -v wget >/dev/null 2>&1; then
-            if command -v apt-get >/dev/null 2>&1; then
-              apt-get update
-              apt-get install -y --no-install-recommends wget ca-certificates
-            elif command -v apk >/dev/null 2>&1; then
-              apk add --no-cache wget ca-certificates
-            else
-              echo "Neither wget nor a supported package manager is available."
-              exit 1
-            fi
+            apt-get update
+            apt-get install -y --no-install-recommends wget ca-certificates
           fi
+
           export ANDROID_HOME="/usr/lib/android-sdk"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
           export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
           export PATH="$ANDROID_HOME/cmdline-tools/cmdline-tools/bin:$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH"
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/cmdline-tools/bin/sdkmanager"
+          export SDKMANAGER="$ANDROID_HOME/cmdline-tools/cmdline-tools/bin/sdkmanager"
+
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
             "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmdline-tools;latest"
+
           for required_file in \
             "$JAVA_HOME/bin/java" \
             "$ANDROID_HOME/platform-tools/adb" \
@@ -59,13 +56,12 @@ jobs:
           do
             test -e "$required_file" || { echo "Missing required Android tool: $required_file"; exit 1; }
           done
-          java -version
-          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --list | sed -n '1,80p'
 
           mkdir -p "$HOME/.config/godot" "$HOME/.local/share/godot/export_templates"
           if [ -d /root/.local/share/godot/export_templates ]; then
             cp -a /root/.local/share/godot/export_templates/. "$HOME/.local/share/godot/export_templates/"
           fi
+
           cat > "$HOME/.config/godot/editor_settings-4.3.tres" <<'GODOT_SETTINGS'
           [gd_resource type="EditorSettings" format=3]
 
@@ -77,108 +73,144 @@ jobs:
           export/android/debug_keystore_pass = "android"
           export/android/force_system_user = false
           GODOT_SETTINGS
+
           mkdir -p "$GITHUB_WORKSPACE/build/android"
           keytool -genkeypair -noprompt -v \
-            -keystore "$GITHUB_WORKSPACE/build/android/voxelverse.keystore" \
+            -keystore "$GITHUB_WORKSPACE/build/android/persistence-debug.keystore" \
             -storepass android \
-            -alias voxelverse \
+            -alias androiddebugkey \
             -keypass android \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -dname "CN=VoxelVerse 2.0,O=VoxelVerse,C=US"
-          godot --headless --version
+            -dname "CN=VoxelVerse Persistence,O=VoxelVerse,C=US"
 
-      - name: Download and normalize Godot source
+          java -version
+          godot --headless --version
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Download and unpack Persistence Edition
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
-          wget --tries=5 --waitretry=3 --timeout=30 \
+
+          echo "Downloading Persistence Edition archive (~3.94 GB)..."
+          wget --continue --tries=20 --waitretry=10 --timeout=120 --read-timeout=120 \
+            --progress=dot:giga \
             --output-document=engine.zip \
-            "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/qVefEYiLZWIVPvmJ.zip"
+            "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/JIBPHKvkfFmSZfDZ.zip"
+
+          test -s engine.zip
           unzip -tq engine.zip >/dev/null
           zipinfo -t engine.zip
+
           rm -rf unpacked_source project_root
           unzip -q engine.zip -d unpacked_source
           mkdir -p project_root
+
           shopt -s dotglob nullglob
-          if [ -d unpacked_source/VoxelVerse_Godot_Clean ]; then
-            mv unpacked_source/VoxelVerse_Godot_Clean/* project_root/
-          else
-            mv unpacked_source/* project_root/
+          project_file="$(find unpacked_source -type f -name project.godot -print -quit)"
+          if [ -z "$project_file" ]; then
+            echo "ERROR: project.godot was not found in Persistence Edition archive."
+            echo "The archive must contain a complete Godot project, not only assets."
+            find unpacked_source -maxdepth 3 -type f | sed -n '1,120p'
+            exit 1
           fi
-          if [ ! -f project_root/project.godot ]; then
-            printf '%s' 'OyBFbmdpbmUgY29uZmlndXJhdGlvbiBmaWxlLgo7IFVzZWQgb25seSB3aGVuIHRoZSBkb3dubG9hZGVkIHNvdXJjZSBhcmNoaXZlIGhhcyBubyBHb2RvdCBwcm9qZWN0IGZpbGVzLgpjb25maWdfdmVyc2lvbj01CgpbYXBwbGljYXRpb25dCmNvbmZpZy9uYW1lPSJWb3hlbFZlcnNlIDIuMCIKcnVuL21haW5fc2NlbmU9InJlczovL01haW4udHNjbiIKY29uZmlnL2ZlYXR1cmVzPVBhY2tlZFN0cmluZ0FycmF5KCI0LjMiLCAiR0wgQ29tcGF0aWJpbGl0eSIpCgpbZGlzcGxheV0Kd2luZG93L3NpemUvdmlld3BvcnRfd2lkdGg9MTI4MAp3aW5kb3cvc2l6ZS92aWV3cG9ydF9oZWlnaHQ9NzIwCndpbmRvdy9zaXplL3dpbmRvd193aWR0aF9vdmVycmlkZT0xMjgwCndpbmRvdy9zaXplL3dpbmRvd19oZWlnaHRfb3ZlcnJpZGU9NzIwCndpbmRvdy9zdHJldGNoL21vZGU9ImNhbnZhc19pdGVtcyIKCltyZW5kZXJpbmddCnJlbmRlcmVyL3JlbmRlcmluZ19tZXRob2Q9ImdsX2NvbXBhdGliaWxpdHkiCnJlbmRlcmVyL3JlbmRlcmluZ19tZXRob2QubW9iaWxlPSJnbF9jb21wYXRpYmlsaXR5Igp0ZXh0dXJlcy9kZWZhdWx0X2ZpbHRlcnMvdXNlX25lYXJlc3RfbWlwbWFwX2ZpbHRlcj1mYWxzZQo=' | base64 --decode > project_root/project.godot
-          fi
-          if [ ! -f project_root/Main.tscn ]; then
-            printf '%s' 'W2dkX3NjZW5lIGxvYWRfc3RlcHM9MiBmb3JtYXQ9M10KCltleHRfcmVzb3VyY2UgdHlwZT0iU2NyaXB0IiBwYXRoPSJyZXM6Ly9zY3JpcHRzL01haW4uZ2QiIGlkPSIxX21haW4iXQoKW25vZGUgbmFtZT0iVm94ZWxWZXJzZSIgdHlwZT0iQ29udHJvbCJdCmxheW91dF9tb2RlID0gMwphbmNob3JzX3ByZXNldCA9IDE1CmFuY2hvcl9yaWdodCA9IDEuMAphbmNob3JfYm90dG9tID0gMS4wCmdyb3dfaG9yaXpvbnRhbCA9IDIKZ3Jvd192ZXJ0aWNhbCA9IDIKc2NyaXB0ID0gRXh0UmVzb3VyY2UoIjFfbWFpbiIpCgpbbm9kZSBuYW1lPSJCYWNrZ3JvdW5kIiB0eXBlPSJDb2xvclJlY3QiIHBhcmVudD0iLiJdCmxheW91dF9tb2RlID0gMQphbmNob3JzX3ByZXNldCA9IDE1CmFuY2hvcl9yaWdodCA9IDEuMAphbmNob3JfYm90dG9tID0gMS4wCmdyb3dfaG9yaXpvbnRhbCA9IDIKZ3Jvd192ZXJ0aWNhbCA9IDIKY29sb3IgPSBDb2xvcigwLjAyLCAwLjAzNSwgMC4wNzUsIDEpCm1vdXNlX2ZpbHRlciA9IDIKCltub2RlIG5hbWU9IlRpdGxlIiB0eXBlPSJMYWJlbCIgcGFyZW50PSIuIl0KbGF5b3V0X21vZGUgPSAxCmFuY2hvcnNfcHJlc2V0ID0gMTUKYW5jaG9yX3JpZ2h0ID0gMS4wCmFuY2hvcl9ib3R0b20gPSAxLjAKb2Zmc2V0X2xlZnQgPSA0OC4wCm9mZnNldF90b3AgPSA0OC4wCm9mZnNldF9yaWdodCA9IC00OC4wCm9mZnNldF9ib3R0b20gPSAtNDguMApncm93X2hvcml6b250YWwgPSAyCmdyb3dfdmVydGljYWwgPSAyCnRoZW1lX292ZXJyaWRlX2NvbG9ycy9mb250X2NvbG9yID0gQ29sb3IoMC41NiwgMC44NiwgMSwgMSkKdGhlbWVfb3ZlcnJpZGVfZm9udF9zaXplcy9mb250X3NpemUgPSA0Mgp0ZXh0ID0gIlZveGVsVmVyc2UgMi4wXG5cbkFQSyBidWlsdCBzdWNjZXNzZnVsbHlcblRoZSBvcmlnaW5hbCB0ZXh0dXJlcyBhbmQgdXNlciBkYXRhIGFyZSBidW5kbGVkIGluIHRoaXMgYnVpbGQuIgpob3Jpem9udGFsX2FsaWdubWVudCA9IDEKdmVydGljYWxfYWxpZ25tZW50ID0gMQo=' | base64 --decode > project_root/Main.tscn
-          fi
-          if [ ! -f project_root/scripts/Main.gd ]; then
-            mkdir -p project_root/scripts
-            printf '%s' 'ZXh0ZW5kcyBDb250cm9sCgpmdW5jIF9yZWFkeSgpIC0+IHZvaWQ6CglwcmludCgiVm94ZWxWZXJzZSAyLjAgc3RhcnRlZCBzdWNjZXNzZnVsbHkuIikK' | base64 --decode > project_root/scripts/Main.gd
-          fi
-          if [ ! -f project_root/export_presets.cfg ]; then
-            printf '%s' 'W3ByZXNldC4wXQpuYW1lPSJBbmRyb2lkIgpwbGF0Zm9ybT0iQW5kcm9pZCIKcnVubmFibGU9dHJ1ZQphZHZhbmNlZF9vcHRpb25zPWZhbHNlCmRlZGljYXRlZF9zZXJ2ZXI9ZmFsc2UKY3VzdG9tX2ZlYXR1cmVzPSIiCmV4cG9ydF9maWx0ZXI9ImFsbF9yZXNvdXJjZXMiCmluY2x1ZGVfZmlsdGVyPSIiCmV4Y2x1ZGVfZmlsdGVyPSIiCmV4cG9ydF9wYXRoPSJidWlsZC9hbmRyb2lkL1ZveGVsVmVyc2VfVWx0aW1hdGUuYXBrIgplbmNyeXB0aW9uX2luY2x1ZGVfZmlsdGVycz0iIgplbmNyeXB0aW9uX2V4Y2x1ZGVfZmlsdGVycz0iIgplbmNyeXB0X3Bjaz1mYWxzZQplbmNyeXB0X2RpcmVjdG9yeT1mYWxzZQpzY3JpcHRfZXhwb3J0X21vZGU9MQpzY3JpcHRfZW5jcnlwdGlvbl9rZXk9IiIKCltwcmVzZXQuMC5vcHRpb25zXQpjdXN0b21fdGVtcGxhdGUvZGVidWc9IiIKY3VzdG9tX3RlbXBsYXRlL3JlbGVhc2U9IiIKZ3JhZGxlX2J1aWxkL3VzZV9ncmFkbGVfYnVpbGQ9ZmFsc2UKZ3JhZGxlX2J1aWxkL2V4cG9ydF9mb3JtYXQ9MAphcmNoaXRlY3R1cmVzL2FybWVhYmktdjdhPXRydWUKYXJjaGl0ZWN0dXJlcy9hcm02NC12OGE9dHJ1ZQphcmNoaXRlY3R1cmVzL3g4Nl82ND1mYWxzZQprZXlzdG9yZS9kZWJ1Zz0iIgprZXlzdG9yZS9kZWJ1Z191c2VyPSIiCmtleXN0b3JlL2RlYnVnX3Bhc3N3b3JkPSIiCmtleXN0b3JlL3JlbGVhc2U9IiIKa2V5c3RvcmUvcmVsZWFzZV91c2VyPSIiCmtleXN0b3JlL3JlbGVhc2VfcGFzc3dvcmQ9IiIKcGFja2FnZS91bmlxdWVfbmFtZT0ib3JnLnZveGVsdmVyc2UudWx0aW1hdGUiCnBhY2thZ2UvbmFtZT0iVm94ZWxWZXJzZSAyLjAiCnZlcnNpb24vY29kZT0xCnZlcnNpb24vbmFtZT0iMi4wIgo=' | base64 --decode > project_root/export_presets.cfg
-          fi
+
+          project_dir="$(dirname "$project_file")"
+          mv "$project_dir"/* project_root/
+
           test -f project_root/project.godot
-          test -f project_root/Main.tscn
-          test -f project_root/export_presets.cfg
-          echo "--- Godot project preflight ---"
-          find project_root -maxdepth 2 -type f \( -name project.godot -o -name export_presets.cfg -o -name Main.tscn \) -print
-          sed -n '1,120p' project_root/export_presets.cfg
-
-      - name: Download user data and apply optional icon
-        run: |
-          set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
-          wget --tries=5 --waitretry=3 --timeout=30 \
-            --output-document=userdata.zip \
-            "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/ajzjRwCScYByCokM.zip"
-          unzip -tq userdata.zip >/dev/null
-          zipinfo -t userdata.zip
-          mkdir -p project_root/assets/lore_and_ideas
-          unzip -q userdata.zip -d project_root/assets/lore_and_ideas
-          du -sh project_root/assets/lore_and_ideas
-          if [ -f icon.png ]; then
-            cp icon.png project_root/icon.png
-            echo "Custom icon.png applied."
-          else
-            echo "No repository icon.png found; default icon will be used."
+          if [ ! -f project_root/export_presets.cfg ]; then
+            echo "Android export preset is missing; creating a clean Android preset."
+            printf '%s\n' \
+              '[preset.0]' \
+              'name="Android"' \
+              'platform="Android"' \
+              'runnable=true' \
+              'advanced_options=false' \
+              'dedicated_server=false' \
+              'custom_features=""' \
+              'export_filter="all_resources"' \
+              'include_filter=""' \
+              'exclude_filter=""' \
+              'export_path="build/android/VoxelVerse_2.0_Persistence.apk"' \
+              'encryption_include_filters=""' \
+              'encryption_exclude_filters=""' \
+              'encrypt_pck=false' \
+              'encrypt_directory=false' \
+              'script_export_mode=1' \
+              'script_encryption_key=""' \
+              '' \
+              '[preset.0.options]' \
+              'custom_template/debug=""' \
+              'custom_template/release=""' \
+              'gradle_build/use_gradle_build=false' \
+              'gradle_build/export_format=0' \
+              'architectures/armeabi-v7a=true' \
+              'architectures/arm64-v8a=true' \
+              'architectures/x86_64=false' \
+              'keystore/debug=""' \
+              'keystore/debug_user=""' \
+              'keystore/debug_password=""' \
+              'keystore/release=""' \
+              'keystore/release_user=""' \
+              'keystore/release_password=""' \
+              'package/unique_name="org.voxelverse.persistence"' \
+              'package/name="VoxelVerse Persistence Edition"' \
+              'version/code=1' \
+              'version/name="2.0 Persistence"' \
+              > project_root/export_presets.cfg
           fi
 
-      - name: Import and export APK
+          echo "--- Project files ---"
+          find project_root -maxdepth 3 -type f | grep -E '(project\\.godot|export_presets\\.cfg|\\.tscn)$' | sort | sed -n '1,160p'
+          echo "--- Project size ---"
+          du -sh project_root
+
+      - name: Validate, import and export Persistence APK
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/project_root"
-          godot --headless --path "$PWD" --import 2>&1 | tee "$GITHUB_WORKSPACE/build/android/godot-import.log"
-          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$GITHUB_WORKSPACE/build/android/voxelverse.keystore"
-          export GODOT_ANDROID_KEYSTORE_RELEASE_USER="voxelverse"
-          export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="android"
           mkdir -p build/android
+
+          godot --headless --path "$PWD" --editor --quit \
+            2>&1 | tee "$GITHUB_WORKSPACE/build/android/godot-preflight.log"
+
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$GITHUB_WORKSPACE/build/android/persistence-debug.keystore"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_USER="androiddebugkey"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="android"
+
+          godot --headless --path "$PWD" --import \
+            2>&1 | tee "$GITHUB_WORKSPACE/build/android/godot-import.log"
+
           godot --headless --verbose --path "$PWD" \
-            --export-release "Android" build/android/VoxelVerse_Ultimate.apk \
+            --export-release "Android" build/android/VoxelVerse_2.0_Persistence.apk \
             2>&1 | tee build/android/godot-export.log
-          test -s build/android/VoxelVerse_Ultimate.apk
-          ls -lh build/android/VoxelVerse_Ultimate.apk
-          sha256sum build/android/VoxelVerse_Ultimate.apk | tee build/android/VoxelVerse_Ultimate.apk.sha256
+
+          test -s build/android/VoxelVerse_2.0_Persistence.apk
+          ls -lh build/android/VoxelVerse_2.0_Persistence.apk
+          sha256sum build/android/VoxelVerse_2.0_Persistence.apk \
+            | tee build/android/VoxelVerse_2.0_Persistence.apk.sha256
 
       - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: VoxelVerse-build-diagnostics
+          name: VoxelVerse-Persistence-build-diagnostics
           path: |
-            project_root/build/android/*.log
-            project_root/build/android/*.sha256
-            project_root/export_presets.cfg
+            build/android/*.log
+            build/android/*.sha256
             project_root/project.godot
+            project_root/export_presets.cfg
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload APK
+      - name: Upload Persistence APK
         uses: actions/upload-artifact@v4
         with:
-          name: VoxelVerse-2.0-APK
-          path: project_root/build/android/VoxelVerse_Ultimate.apk
+          name: VoxelVerse-2.0-Persistence-APK
+          path: project_root/build/android/VoxelVerse_2.0_Persistence.apk
           if-no-files-found: error
+          compression-level: 0
           retention-days: 7
