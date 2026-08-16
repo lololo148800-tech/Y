@@ -59,13 +59,19 @@ jobs:
             test -e "$required_file" || { echo "Missing required Android tool: $required_file"; exit 1; }
           done
 
-          mkdir -p "/root/.config/godot" "/root/.local/share/godot/export_templates"
-          echo "Checking export templates..."
-          find /root/.local/share/godot/export_templates -maxdepth 2 || echo "No templates found in /root"
-          find /usr/share/godot -maxdepth 2 || echo "No templates found in /usr/share"
+          # GitHub Actions container uses /github/home as HOME
+          GH_HOME="/github/home"
+          mkdir -p "$GH_HOME/.config/godot" "$GH_HOME/.local/share/godot/export_templates/4.3.stable"
+          
+          # Copy templates from root if they exist
+          if [ -d "/root/.local/share/godot/export_templates/4.3.stable" ]; then
+            cp -r /root/.local/share/godot/export_templates/4.3.stable/* "$GH_HOME/.local/share/godot/export_templates/4.3.stable/"
+          elif [ -d "/root/.local/share/godot/export_templates" ]; then
+            cp -r /root/.local/share/godot/export_templates/* "$GH_HOME/.local/share/godot/export_templates/4.3.stable/"
+          fi
 
           keytool -genkeypair -noprompt -v \
-            -keystore "/root/.config/godot/debug.keystore" \
+            -keystore "$GH_HOME/.config/godot/debug.keystore" \
             -storepass android \
             -alias androiddebugkey \
             -keypass android \
@@ -74,11 +80,10 @@ jobs:
             -validity 10000 \
             -dname "CN=VoxelVerse Integrity,O=VoxelVerse,C=US"
 
-          # Create both 4 and 4.3 settings files to be safe
           SETTINGS_CONTENT=$(printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "%s"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\nexport/android/force_system_user = false\n' \
-            "$JAVA_HOME" "$ANDROID_HOME" "/root/.config/godot/debug.keystore")
-          echo "$SETTINGS_CONTENT" > "/root/.config/godot/editor_settings-4.tres"
-          echo "$SETTINGS_CONTENT" > "/root/.config/godot/editor_settings-4.3.tres"
+            "$JAVA_HOME" "$ANDROID_HOME" "$GH_HOME/.config/godot/debug.keystore")
+          echo "$SETTINGS_CONTENT" > "$GH_HOME/.config/godot/editor_settings-4.tres"
+          echo "$SETTINGS_CONTENT" > "$GH_HOME/.config/godot/editor_settings-4.3.tres"
 
           java -version
           godot --headless --version
@@ -145,7 +150,7 @@ jobs:
               'architectures/armeabi-v7a=false' \
               'architectures/arm64-v8a=true' \
               'architectures/x86_64=false' \
-              'keystore/debug="/root/.config/godot/debug.keystore"' \
+              'keystore/debug="/github/home/.config/godot/debug.keystore"' \
               'keystore/debug_user="androiddebugkey"' \
               'keystore/debug_password="android"' \
               'keystore/release=""' \
@@ -165,7 +170,7 @@ jobs:
       - name: Run Build and Validation Helper
         run: |
           set -euo pipefail
-          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="/root/.config/godot/debug.keystore"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="/github/home/.config/godot/debug.keystore"
           export GODOT_ANDROID_KEYSTORE_RELEASE_USER="androiddebugkey"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="android"
           test -f ci_build_helper.sh || { echo "[ОШИБКА] ci_build_helper.sh не найден в репозитории!"; exit 1; }
