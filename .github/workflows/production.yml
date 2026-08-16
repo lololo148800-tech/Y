@@ -108,6 +108,7 @@ jobs:
       - name: Download and Extract Master Project (~3.9GB)
         run: |
           set -euo pipefail
+          GH_HOME="/github/home"
           echo "Скачивание исправленного мастер-проекта (Integrity Verified Edition)..."
           wget --continue --tries=20 --waitretry=10 --timeout=120 --read-timeout=120 \
             --progress=dot:giga \
