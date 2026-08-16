@@ -109,17 +109,73 @@ jobs:
           # Проверяем структуру распаковки: если есть вложенная папка voxel_source, переносим её содержимое в корень
           shopt -s dotglob nullglob
           if [ -d "extracted_root/voxel_source" ]; then
-              mv extracted_root/voxel_source/* .
+              for item in extracted_root/voxel_source/*; do
+                  if [ "$(basename "$item")" != ".github" ]; then
+                      mv "$item" .
+                  else
+                      cp -r "$item"/* .github/ 2>/dev/null || true
+                  fi
+              done
               rm -rf extracted_root
           else
-              mv extracted_root/* .
-              rmdir extracted_root
+              for item in extracted_root/*; do
+                  if [ "$(basename "$item")" != ".github" ]; then
+                      mv "$item" .
+                  else
+                      cp -r "$item"/* .github/ 2>/dev/null || true
+                  fi
+              done
+              rm -rf extracted_root
           fi
 
           if [ ! -f "project.godot" ]; then
               echo "[ОШИБКА] project.godot не найден в корне воркспейса после распаковки!"
               find . -maxdepth 3 -type f -name "*.godot" | sed -n '1,50p'
               exit 1
+          fi
+
+          # БЛОК АВТОСОЗДАНИЯ CONFIG (Страховка)
+          if [ ! -f "export_presets.cfg" ]; then
+            echo "Android export preset отсутствует; создаю чистый Android-пресет."
+            printf '%s\n' \
+              '[preset.0]' \
+              'name="Android"' \
+              'platform="Android"' \
+              'runnable=true' \
+              'advanced_options=false' \
+              'dedicated_server=false' \
+              'custom_features=""' \
+              'export_filter="all_resources"' \
+              'include_filter=""' \
+              'exclude_filter=""' \
+              'export_path="build/android/VoxelVerse_2.0_Integrity.apk"' \
+              'encryption_include_filters=""' \
+              'encryption_exclude_filters=""' \
+              'encrypt_pck=false' \
+              'encrypt_directory=false' \
+              'script_export_mode=1' \
+              'script_encryption_key=""' \
+              '' \
+              '[preset.0.options]' \
+              'custom_template/debug=""' \
+              'custom_template/release=""' \
+              'gradle_build/use_gradle_build=false' \
+              'gradle_build/export_format=0' \
+              'architectures/armeabi-v7a=false' \
+              'architectures/arm64-v8a=true' \
+              'architectures/x86_64=false' \
+              'keystore/debug="'$HOME'/.config/godot/debug.keystore"' \
+              'keystore/debug_user="androiddebugkey"' \
+              'keystore/debug_password="android"' \
+              'keystore/release=""' \
+              'keystore/release_user=""' \
+              'keystore/release_password=""' \
+              'package/unique_name="com.voxelverse.game"' \
+              'package/name="VoxelVerse 2.0"' \
+              'version/code=200' \
+              'version/name="2.0.0"' \
+              'permissions/internet=true' \
+              > export_presets.cfg
           fi
 
           echo "--- Project size ---"
