@@ -74,17 +74,8 @@ jobs:
             -validity 10000 \
             -dname "CN=VoxelVerse Integrity,O=VoxelVerse,C=US"
 
-          cat > "$HOME/.config/godot/editor_settings-4.3.tres" <<GODOT_SETTINGS
-[gd_resource type="EditorSettings" format=3]
-
-[resource]
-export/android/java_sdk_path = "$JAVA_HOME"
-export/android/android_sdk_path = "$ANDROID_HOME"
-export/android/debug_keystore = "$HOME/.config/godot/debug.keystore"
-export/android/debug_keystore_user = "androiddebugkey"
-export/android/debug_keystore_pass = "android"
-export/android/force_system_user = false
-GODOT_SETTINGS
+          printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "%s"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\nexport/android/force_system_user = false\n' \
+            "$JAVA_HOME" "$ANDROID_HOME" "$HOME/.config/godot/debug.keystore" > "$HOME/.config/godot/editor_settings-4.3.tres"
 
           java -version
           godot --headless --version
