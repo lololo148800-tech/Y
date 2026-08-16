@@ -7,6 +7,8 @@ jobs:
     container:
       image: barichello/godot-ci:4.3
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Setup
         run: |
           apt-get update && apt-get install -y wget python3 ffmpeg
@@ -19,3 +21,12 @@ jobs:
           unzip -q engine.zip -d tmp && (mv tmp/voxel_source/* . || mv tmp/* .)
           rm -rf tmp engine.zip
           printf "[preset.0]\nname=\"Android\"\nplatform=\"Android\"\nrunnable=true\nexport_path=\"build/android/VoxelVerse_2.0_Integrity.apk\"\n[preset.0.options]\narchitectures/armeabi-v7a=false\narchitectures/arm64-v8a=true\nkeystore/debug=\"/github/home/.config/godot/debug.keystore\"\nkeystore/debug_user=\"androiddebugkey\"\nkeystore/debug_password=\"android\"\nkeystore/release=\"/github/home/.config/godot/debug.keystore\"\nkeystore/release_user=\"androiddebugkey\"\nkeystore/release_password=\"android\"\npackage/unique_name=\"com.voxelverse.game\"\npackage/name=\"VoxelVerse 2.0\"\n" > export_presets.cfg
+      - name: Build
+        run: |
+          chmod +x ci_build_helper.sh
+          ./ci_build_helper.sh
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoxelVerse-APK
+          path: build/android/*.apk
