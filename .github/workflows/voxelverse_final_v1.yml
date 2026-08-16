@@ -1,95 +1,37 @@
-name: VoxelVerse Final Build
+name: VoxelVerse Build
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
     container:
       image: barichello/godot-ci:4.3
-    env:
-      HOME: /github/home
     steps:
       - uses: actions/checkout@v4
-      
       - name: Setup
         run: |
           apt-get update && apt-get install -y wget python3 ffmpeg
-          mkdir -p $HOME/.config/godot
-          mkdir -p $HOME/.local/share/godot/export_templates/4.3.stable
-          
-          # Находим где лежат шаблоны в этом образе
-          TEMPLATE_PATH=$(find /root -name "android_debug.apk" | xargs dirname | head -n 1)
-          if [ -n "$TEMPLATE_PATH" ]; then
-            cp -r $TEMPLATE_PATH/* $HOME/.local/share/godot/export_templates/4.3.stable/
-          fi
-          
-          keytool -genkeypair -noprompt -v -keystore $HOME/.config/godot/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=VoxelVerse"
-          
-          printf '[gd_resource type="EditorSettings" format=3]\n[resource]\nexport/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"\nexport/android/android_sdk_path = "/usr/lib/android-sdk"\nexport/android/debug_keystore = "/github/home/.config/godot/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' > $HOME/.config/godot/editor_settings-4.3.tres
-
-      - name: Assets
-        run: |
-          wget -q "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/onktkgFtPgiZDpFS.zip" -O engine.zip
+          wget -q "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/vKStvlJmXrHcMSJA.zip" -O engine.zip
           unzip -q engine.zip -d tmp && (mv tmp/voxel_source/* . || mv tmp/* .)
           rm -rf tmp engine.zip
           
-          # Создаем конфиг ПОСЛЕ распаковки ассетов
-          cat > export_presets.cfg <<'PRESETS'
-[preset.0]
-name="Android"
-platform="Android"
-runnable=true
-advanced_options=false
-dedicated_server=false
-custom_features=""
-export_filter="all_resources"
-include_filter=""
-exclude_filter=""
-export_path="build/android/VoxelVerse_2.0_Integrity.apk"
-encryption_include_filters=""
-encryption_exclude_filters=""
-encrypt_pck=false
-encrypt_directory=false
-script_export_mode=1
-script_encryption_key=""
-
-[preset.0.options]
-custom_template/debug=""
-custom_template/release=""
-gradle_build/use_gradle_build=false
-gradle_build/export_format=0
-architectures/armeabi-v7a=false
-architectures/arm64-v8a=true
-architectures/x86_64=false
-keystore/debug="/github/home/.config/godot/debug.keystore"
-keystore/debug_user="androiddebugkey"
-keystore/debug_password="android"
-keystore/release="/github/home/.config/godot/debug.keystore"
-keystore/release_user="androiddebugkey"
-keystore/release_password="android"
-package/unique_name="com.voxelverse.game"
-package/name="VoxelVerse 2.0"
-version/code=200
-version/name="2.0.0"
-PRESETS
+          # Настраиваем окружение из пре-бейкед файлов
+          mkdir -p /github/home/.config/godot
+          mkdir -p /github/home/.local/share/godot/export_templates/4.3.stable
+          cp .godot_config/config/* /github/home/.config/godot/
           
-          find . -name "*.import" -delete
-          find assets -name "*.mesh" -delete
-          find assets -name "*.material" -delete
-
+          TEMPLATE_PATH=$(find /root -name "android_debug.apk" | xargs dirname | head -n 1)
+          if [ -n "$TEMPLATE_PATH" ]; then
+            cp -r $TEMPLATE_PATH/* /github/home/.local/share/godot/export_templates/4.3.stable/
+          fi
+          
       - name: Build
         run: |
           chmod +x ci_build_helper.sh
-          ./ci_build_helper.sh
-
+          HOME=/github/home ./ci_build_helper.sh
       - uses: actions/upload-artifact@v4
         with:
           name: VoxelVerse-APK
           path: build/android/*.apk
-          compression-level: 0
