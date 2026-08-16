@@ -2,6 +2,11 @@ name: VoxelVerse 2.0 - INTEGRITY GRAND FINALE BUILD
 
 on:
   workflow_dispatch:
+    inputs:
+      log_level:
+        description: 'Log level'
+        required: false
+        default: 'info'
 
 permissions:
   contents: read
@@ -58,11 +63,6 @@ jobs:
           done
 
           mkdir -p "/root/.config/godot" "/root/.local/share/godot/export_templates"
-          if [ -d /root/.local/share/godot/export_templates ]; then
-            echo "Export templates found in /root/.local/share/godot/export_templates"
-          else
-            echo "Templates missing, creating dummy directory"
-          fi
 
           keytool -genkeypair -noprompt -v \
             -keystore "/root/.config/godot/debug.keystore" \
@@ -74,7 +74,6 @@ jobs:
             -validity 10000 \
             -dname "CN=VoxelVerse Integrity,O=VoxelVerse,C=US"
 
-          # Создаем настройки именно в /root, так как Godot в контейнере запускается от root
           cat > "/root/.config/godot/editor_settings-4.3.tres" <<GODOT_SETTINGS
 [gd_resource type="EditorSettings" format=3]
 
@@ -107,7 +106,6 @@ GODOT_SETTINGS
           unzip -q -o engine.zip -d extracted_root
           rm -f engine.zip
 
-          # Проверяем структуру распаковки: если есть вложенная папка voxel_source, переносим её содержимое в корень
           shopt -s dotglob nullglob
           if [ -d "extracted_root/voxel_source" ]; then
               for item in extracted_root/voxel_source/*; do
@@ -131,11 +129,9 @@ GODOT_SETTINGS
 
           if [ ! -f "project.godot" ]; then
               echo "[ОШИБКА] project.godot не найден в корне воркспейса после распаковки!"
-              find . -maxdepth 3 -type f -name "*.godot" | sed -n '1,50p'
               exit 1
           fi
 
-          # БЛОК АВТОСОЗДАНИЯ CONFIG (Страховка)
           echo "Создание мастер-конфига Android-пресета..."
           printf '%s\n' \
             '[preset.0]' \
@@ -175,21 +171,16 @@ GODOT_SETTINGS
             'version/code=200' \
             'version/name="2.0.0"' \
             > export_presets.cfg
-          
-          # Полная очистка перед импортом
+
           find . -name "*.import" -delete
           find assets -name "*.mesh" -delete
           find assets -name "*.material" -delete
-          
-          echo "--- SDK Check ---"
-          ls -l /usr/lib/android-sdk/platforms/android-34/android.jar || echo "SDK JAR MISSING!"
-
           echo "--- Project size ---"
           du -sh .
 
       - name: Run Build and Validation Helper
         run: |
-          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$HOME/.config/godot/debug.keystore"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="/root/.config/godot/debug.keystore"
           export GODOT_ANDROID_KEYSTORE_RELEASE_USER="androiddebugkey"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="android"
           chmod +x ci_build_helper.sh
