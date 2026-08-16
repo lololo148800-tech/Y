@@ -85,6 +85,20 @@ jobs:
           echo "$SETTINGS_CONTENT" > "$GH_HOME/.config/godot/editor_settings-4.tres"
           echo "$SETTINGS_CONTENT" > "$GH_HOME/.config/godot/editor_settings-4.3.tres"
 
+          # The CI image does not contain export templates; install the exact Godot 4.3 templates.
+          TEMPLATE_ARCHIVE="/tmp/Godot_v4.3-stable_export_templates.tpz"
+          wget --tries=5 --timeout=120 --output-document="$TEMPLATE_ARCHIVE" \
+            "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz"
+          test -s "$TEMPLATE_ARCHIVE"
+          rm -rf /tmp/godot_templates
+          mkdir -p /tmp/godot_templates "$GH_HOME/.local/share/godot/export_templates/4.3.stable"
+          unzip -q -o "$TEMPLATE_ARCHIVE" 'templates/android_debug.apk' 'templates/android_release.apk' 'templates/version.txt' -d /tmp/godot_templates
+          cp /tmp/godot_templates/templates/android_debug.apk "$GH_HOME/.local/share/godot/export_templates/4.3.stable/android_debug.apk"
+          cp /tmp/godot_templates/templates/android_release.apk "$GH_HOME/.local/share/godot/export_templates/4.3.stable/android_release.apk"
+          cp /tmp/godot_templates/templates/version.txt "$GH_HOME/.local/share/godot/export_templates/4.3.stable/version.txt"
+          test -s "$GH_HOME/.local/share/godot/export_templates/4.3.stable/android_debug.apk"
+          test -s "$GH_HOME/.local/share/godot/export_templates/4.3.stable/android_release.apk"
+
           java -version
           godot --headless --version
           df -h "$GITHUB_WORKSPACE"
@@ -170,6 +184,7 @@ jobs:
       - name: Run Build and Validation Helper
         run: |
           set -euo pipefail
+          export HOME="/github/home"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="/github/home/.config/godot/debug.keystore"
           export GODOT_ANDROID_KEYSTORE_RELEASE_USER="androiddebugkey"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="android"
