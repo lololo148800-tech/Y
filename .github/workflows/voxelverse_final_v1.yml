@@ -12,40 +12,26 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: barichello/godot-ci:4.3
-    env:
-      HOME: /github/home
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup Environment
+      - name: Setup
         run: |
           apt-get update && apt-get install -y wget python3 ffmpeg
-          mkdir -p $HOME/.config/godot
-          mkdir -p $HOME/.local/share/godot/export_templates/4.3.stable
-          
+          mkdir -p /github/home/.config/godot
+          mkdir -p /github/home/.local/share/godot/export_templates/4.3.stable
           if [ -d /root/.local/share/godot/export_templates/4.3.stable ]; then
-            cp -r /root/.local/share/godot/export_templates/4.3.stable/* $HOME/.local/share/godot/export_templates/4.3.stable/
+            cp -r /root/.local/share/godot/export_templates/4.3.stable/* /github/home/.local/share/godot/export_templates/4.3.stable/
           fi
-          
-          keytool -genkeypair -noprompt -v -keystore $HOME/.config/godot/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=VoxelVerse"
-          
-          cat > $HOME/.config/godot/editor_settings-4.3.tres <<SETTINGS
-[gd_resource type="EditorSettings" format=3]
-[resource]
-export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"
-export/android/android_sdk_path = "/usr/lib/android-sdk"
-export/android/debug_keystore = "$HOME/.config/godot/debug.keystore"
-export/android/debug_keystore_user = "androiddebugkey"
-export/android/debug_keystore_pass = "android"
-SETTINGS
+          keytool -genkeypair -noprompt -v -keystore /github/home/.config/godot/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=VoxelVerse"
+          printf '[gd_resource type="EditorSettings" format=3]\n[resource]\nexport/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"\nexport/android/android_sdk_path = "/usr/lib/android-sdk"\nexport/android/debug_keystore = "/github/home/.config/godot/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' > /github/home/.config/godot/editor_settings-4.3.tres
 
-      - name: Download Assets
+      - name: Assets
         run: |
           wget -q "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/onktkgFtPgiZDpFS.zip" -O engine.zip
-          unzip -q engine.zip -d tmp && mv tmp/voxel_source/* . || mv tmp/* .
+          unzip -q engine.zip -d tmp && (mv tmp/voxel_source/* . || mv tmp/* .)
           rm -rf tmp engine.zip
-          
-          cat > export_presets.cfg <<PRESETS
+          cat > export_presets.cfg <<'PRESETS'
 [preset.0]
 name="Android"
 platform="Android"
@@ -72,10 +58,10 @@ gradle_build/export_format=0
 architectures/armeabi-v7a=false
 architectures/arm64-v8a=true
 architectures/x86_64=false
-keystore/debug="$HOME/.config/godot/debug.keystore"
+keystore/debug="/github/home/.config/godot/debug.keystore"
 keystore/debug_user="androiddebugkey"
 keystore/debug_password="android"
-keystore/release="$HOME/.config/godot/debug.keystore"
+keystore/release="/github/home/.config/godot/debug.keystore"
 keystore/release_user="androiddebugkey"
 keystore/release_password="android"
 package/unique_name="com.voxelverse.game"
@@ -83,15 +69,14 @@ package/name="VoxelVerse 2.0"
 version/code=200
 version/name="2.0.0"
 PRESETS
-          
           find . -name "*.import" -delete
           find assets -name "*.mesh" -delete
           find assets -name "*.material" -delete
 
-      - name: Build APK
+      - name: Build
         run: |
           chmod +x ci_build_helper.sh
-          ./ci_build_helper.sh
+          HOME=/github/home ./ci_build_helper.sh
 
       - uses: actions/upload-artifact@v4
         with:
