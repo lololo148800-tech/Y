@@ -8,6 +8,11 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: barichello/godot-ci:4.3
+    defaults:
+      run:
+        shell: bash
+    env:
+      HOME: /github/home
     steps:
       - uses: actions/checkout@v4
       - name: Setup
@@ -16,12 +21,10 @@ jobs:
           wget -q "https://files.manuscdn.com/user_upload_by_module/session_file/310519663886992990/vKStvlJmXrHcMSJA.zip" -O engine.zip
           mkdir -p tmp
           unzip -q engine.zip -d tmp
-          # Перемещаем всё из корня архива в текущую папку
           shopt -s dotglob
           mv tmp/* .
           rm -rf tmp engine.zip
           
-          # Настраиваем окружение
           mkdir -p /github/home/.config/godot
           mkdir -p /github/home/.local/share/godot/export_templates/4.3.stable
           cp -r .godot_config/config/* /github/home/.config/godot/
@@ -34,7 +37,7 @@ jobs:
       - name: Build
         run: |
           chmod +x ci_build_helper.sh
-          HOME=/github/home ./ci_build_helper.sh
+          ./ci_build_helper.sh
       - uses: actions/upload-artifact@v4
         with:
           name: VoxelVerse-APK
