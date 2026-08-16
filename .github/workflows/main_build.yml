@@ -1,0 +1,17 @@
+name: VoxelVerse 2.0 - FINAL BUILD
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for build"
+        required: false
+        default: "manual"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Triggered by ${GITHUB_ACTOR}"
